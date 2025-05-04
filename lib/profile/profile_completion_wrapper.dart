@@ -5,7 +5,7 @@ import '../auth/auth_service.dart';
 import '../model/user_model.dart';
 import 'role_selection_screen.dart';
 import 'university_selection_screen.dart';
-import '../home_screen.dart';
+import '../dashboard/dashboard_screen.dart';
 
 class ProfileCompletionWrapper extends StatefulWidget {
   const ProfileCompletionWrapper({Key? key}) : super(key: key);
@@ -82,7 +82,7 @@ class _ProfileCompletionWrapperState extends State<ProfileCompletionWrapper> {
         if (mounted) {
           // Successfully completed profile - navigate to home
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => HomeScreen()),
+            MaterialPageRoute(builder: (_) => DashboardScreen()),
           );
         }
       } catch (e) {

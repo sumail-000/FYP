@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'signup.dart'; 
 import 'auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../home_screen.dart';
+import '../dashboard/dashboard_screen.dart';
 
 void main() {
   runApp(LoginApp());

@@ -5,7 +5,7 @@ import 'intro/intro1.dart';
 import 'auth/login.dart';
 import 'auth/signup.dart';
 import 'auth/reset_password.dart';
-import 'home_screen.dart';
+import 'dashboard/dashboard_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_state_wrapper.dart';

@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'auth_service.dart';
 import 'login.dart';
 import '../profile/profile_completion_wrapper.dart';
-import '../home_screen.dart';
+import '../dashboard/dashboard_screen.dart';
 
 class AuthStateWrapper extends StatelessWidget {
   final AuthService _authService = AuthService();
@@ -47,9 +47,9 @@ class AuthStateWrapper extends StatelessWidget {
               );
             }
             
-            // Profile complete - go to home screen
+            // Profile complete - go to dashboard screen
             if (profileSnapshot.data == true) {
-              return HomeScreen();
+              return DashboardScreen();
             } 
             
             // Profile incomplete - go to profile completion flow
