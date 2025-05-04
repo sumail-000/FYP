@@ -8,6 +8,7 @@ import 'auth/reset_password.dart';
 import 'home_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'auth/auth_service.dart';
+import 'auth/auth_state_wrapper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +37,7 @@ class MyApp extends StatelessWidget {
         '/login': (context) => LoginScreen(),
         '/signup': (context) => SignupScreen(),
         '/reset-password': (context) => ResetPasswordScreen(),
-        '/home': (context) => HomeScreen(),
+        '/home': (context) => AuthStateWrapper(),
       },
     );
   }
@@ -59,12 +60,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     // Check if user is already logged in
     Future.delayed(Duration.zero, () async {
       if (_authService.currentUser != null) {
-        // User is already logged in, navigate to home
-        Navigator.of(context).pushReplacementNamed('/home');
+        // Check if profile is complete before navigating
+        bool isProfileComplete = await _authService.isProfileComplete();
+        if (mounted) {
+          // User is already logged in, navigate to home which will handle profile completion check
+          Navigator.of(context).pushReplacementNamed('/home');
+        }
       } else {
         // Navigate to IntroductionScreen after 3 seconds
         Future.delayed(const Duration(seconds: 3), () {
-          Navigator.of(context).pushReplacementNamed('/intro');
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed('/intro');
+          }
         });
       }
     });
