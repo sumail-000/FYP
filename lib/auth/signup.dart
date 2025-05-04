@@ -133,10 +133,8 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
         await _authService.registerWithEmailPassword(
           _emailController.text.trim(),
           _passwordController.text.trim(),
+          username: _usernameController.text.trim(),
         );
-        
-        // Save additional user data if needed (like username)
-        // This would typically go to a database like Firestore
         
         // Navigate to login page or directly to home page
         if (mounted) {
@@ -306,6 +304,9 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
                                 }
                                 if (value.length < 3) {
                                   return 'Username must be at least 3 characters';
+                                }
+                                if (RegExp(r'^[0-9]+$').hasMatch(value)) {
+                                  return 'Username cannot contain only numbers';
                                 }
                                 return null;
                               },
