@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "364828928190",
+    "project_id": "academia-hub-4fe80",
+    "storage_bucket": "academia-hub-4fe80.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:364828928190:android:ff8975a7b5cea3a17616ef",
+        "android_client_info": {
+          "package_name": "com.fypproject.acdemia_hub"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "364828928190-b4e480o25gtbb7vfg97v9jkd4ljd8mbp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.fypproject.acdemia_hub",
+            "certificate_hash": "ca63facf751411f4f926cfb6a12abb70bb989afe"
+          }
+        },
+        {
+          "client_id": "364828928190-f7i618j31pembvnv168q05hb830gp86k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0_pp59qL-Hg3eITRSGnfA8GSVvO2vbz4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "364828928190-f7i618j31pembvnv168q05hb830gp86k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

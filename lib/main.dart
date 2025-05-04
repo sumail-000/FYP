@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'intro/intro1.dart';
+import 'auth/login.dart';
+import 'auth/signup.dart';
+import 'auth/reset_password.dart';
+import 'home_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'auth/auth_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -12,7 +24,20 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: const WelcomeScreen(), // Start with Welcome Screen
+      title: 'Academia Hub',
+      theme: ThemeData(
+        primaryColor: Color(0xFF125F9D),
+        scaffoldBackgroundColor: Colors.white,
+      ),
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const WelcomeScreen(),
+        '/intro': (context) => const IntroductionScreen1(),
+        '/login': (context) => LoginScreen(),
+        '/signup': (context) => SignupScreen(),
+        '/reset-password': (context) => ResetPasswordScreen(),
+        '/home': (context) => HomeScreen(),
+      },
     );
   }
 }
@@ -25,16 +50,23 @@ class WelcomeScreen extends StatefulWidget {
 }
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
+  final AuthService _authService = AuthService();
+
   @override
   void initState() {
     super.initState();
 
-    // Navigate to IntroductionScreen after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const IntroductionScreen1()),
-      );
+    // Check if user is already logged in
+    Future.delayed(Duration.zero, () async {
+      if (_authService.currentUser != null) {
+        // User is already logged in, navigate to home
+        Navigator.of(context).pushReplacementNamed('/home');
+      } else {
+        // Navigate to IntroductionScreen after 3 seconds
+        Future.delayed(const Duration(seconds: 3), () {
+          Navigator.of(context).pushReplacementNamed('/intro');
+        });
+      }
     });
   }
 
@@ -49,7 +81,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             Image.asset(
               'assets/Logo.png', // Ensure the file exists in assets
               width: 400, // Adjust size as needed
-
             ),
           ],
         ),
