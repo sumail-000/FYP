@@ -104,12 +104,24 @@ class AuthService {
       
       return userCredential;
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found') {
-        throw 'No user found for that email.';
-      } else if (e.code == 'wrong-password') {
-        throw 'Wrong password provided.';
-      } else {
-        throw e.message ?? 'An unknown error occurred.';
+      // Provide clear, user-friendly error messages
+      switch (e.code) {
+        case 'user-not-found':
+          throw 'No account found with this email.';
+        case 'wrong-password':
+          throw 'Incorrect email or password.';
+        case 'invalid-credential':
+          throw 'Invalid login credentials.';
+        case 'user-disabled':
+          throw 'This account has been disabled.';
+        case 'too-many-requests':
+          throw 'Too many unsuccessful login attempts. Please try again later.';
+        case 'invalid-email':
+          throw 'Please enter a valid email address.';
+        case 'network-request-failed':
+          throw 'Network error. Please check your internet connection.';
+        default:
+          throw e.message ?? 'An error occurred during login.';
       }
     } catch (e) {
       throw 'An error occurred: $e';

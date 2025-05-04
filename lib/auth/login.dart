@@ -224,6 +224,88 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     }
   }
 
+  // Method to calculate dynamic positions based on error presence
+  double _getEmailFieldTopPosition() {
+    // Add extra space if error message is shown
+    double basePosition = _isKeyboardVisible ? 140 : 310;
+    if (_errorMessage.isNotEmpty) {
+      return basePosition + 20; // Reduced extra space for error message
+    }
+    return basePosition;
+  }
+
+  double _getPasswordFieldTopPosition() {
+    // Start with base position
+    double basePosition = _isKeyboardVisible ? 220 : 390;
+    
+    // Add extra space if there's an email error
+    if (_errorMessage.isNotEmpty && _isEmailError(_errorMessage)) {
+      return basePosition + 20; // Add space for the error under email field
+    }
+    
+    return basePosition;
+  }
+
+  double _getForgetPasswordTopPosition() {
+    double basePosition = _isKeyboardVisible ? 290 : 448;
+    
+    // Add extra space if there's an email error
+    if (_errorMessage.isNotEmpty && _isEmailError(_errorMessage)) {
+      return basePosition + 20;
+    }
+    
+    // Add extra space if there's a password error
+    if (_errorMessage.isNotEmpty && !_isEmailError(_errorMessage)) {
+      return basePosition + 20;
+    }
+    
+    return basePosition;
+  }
+
+  double _getLoginButtonTopPosition() {
+    double basePosition = _isKeyboardVisible ? 330 : 500;
+    
+    // Add extra space for errors
+    if (_errorMessage.isNotEmpty) {
+      return basePosition + 20;
+    }
+    
+    return basePosition;
+  }
+
+  double _getDividerTopPosition() {
+    double basePosition = _isKeyboardVisible ? 400 : 570;
+    if (_errorMessage.isNotEmpty) {
+      return basePosition + 20; // Reduced extra space for error message
+    }
+    return basePosition;
+  }
+
+  double _getGoogleButtonTopPosition() {
+    double basePosition = _isKeyboardVisible ? 450 : 620;
+    if (_errorMessage.isNotEmpty) {
+      return basePosition + 20; // Reduced extra space for error message
+    }
+    return basePosition;
+  }
+
+  double _getSignupTextTopPosition() {
+    double basePosition = _isKeyboardVisible ? 520 : 690;
+    if (_errorMessage.isNotEmpty) {
+      return basePosition + 20; // Reduced extra space for error message
+    }
+    return basePosition;
+  }
+
+  bool _isEmailError(String errorMessage) {
+    // Check if the error is related to the email field
+    String lowerCaseError = errorMessage.toLowerCase();
+    return lowerCaseError.contains('email') || 
+           lowerCaseError.contains('user-not-found') || 
+           lowerCaseError.contains('no account') ||
+           lowerCaseError.contains('invalid-email');
+  }
+
   @override
   Widget build(BuildContext context) {
     // Check if keyboard is visible
@@ -288,118 +370,162 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         ),
                       ),
 
-                      // Error message
-                      if (_errorMessage.isNotEmpty)
-                        Positioned(
-                          top: _isKeyboardVisible ? 110 : 280,
-                          child: Container(
-                            width: MediaQuery.of(context).size.width - 80,
-                            child: Text(
-                              _errorMessage,
-                              style: TextStyle(color: Colors.red, fontSize: 14),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ),
-
                       // Email field
                       Positioned(
                         top: _isKeyboardVisible ? 140 : 310,
-                        child: Container(
-                          width: MediaQuery.of(context).size.width - 80,
-                          child: SlideTransition(
-                            position: _animations[1],
-                            child: TextFormField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                prefixIcon: Icon(Icons.email, color: Color(0xFF125F9D), size: 24),
-                                hintText: "Enter your email",
-                                hintStyle: TextStyle(color: Color(0xFF125F9D), fontSize: 18),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Color(0xFF125F9D), width: 3.5),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Color(0xFF125F9D), width: 4),
-                                ),
-                                errorBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Colors.red, width: 3.5),
-                                ),
-                                focusedErrorBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Colors.red, width: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: MediaQuery.of(context).size.width - 80,
+                              child: SlideTransition(
+                                position: _animations[1],
+                                child: TextFormField(
+                                  controller: _emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  decoration: InputDecoration(
+                                    prefixIcon: Icon(Icons.email, color: Color(0xFF125F9D), size: 24),
+                                    hintText: "Enter your email",
+                                    hintStyle: TextStyle(color: Color(0xFF125F9D), fontSize: 18),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Color(0xFF125F9D), width: 3.5),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Color(0xFF125F9D), width: 4),
+                                    ),
+                                    errorBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Colors.red, width: 3.5),
+                                    ),
+                                    focusedErrorBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Colors.red, width: 4),
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your email';
+                                    }
+                                    // Basic email validation
+                                    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                                      return 'Please enter a valid email address';
+                                    }
+                                    return null;
+                                  },
                                 ),
                               ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your email';
-                                }
-                                // Basic email validation
-                                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-                                  return 'Please enter a valid email address';
-                                }
-                                return null;
-                              },
                             ),
-                          ),
+                            if (_errorMessage.isNotEmpty && _isEmailError(_errorMessage))
+                              Container(
+                                width: MediaQuery.of(context).size.width - 80,
+                                margin: EdgeInsets.only(top: 6),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.error_outline, color: Colors.red[600], size: 14),
+                                    SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        _formatErrorMessage(_errorMessage),
+                                        style: TextStyle(
+                                          color: Colors.red[600], 
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500
+                                        ),
+                                        textAlign: TextAlign.left,
+                                        overflow: TextOverflow.visible,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       
                       // Password field
                       Positioned(
-                        top: _isKeyboardVisible ? 220 : 390,
-                        child: Container(
-                          width: MediaQuery.of(context).size.width - 80,
-                          child: SlideTransition(
-                            position: _animations[2],
-                            child: TextFormField(
-                              controller: _passwordController,
-                              obscureText: _isObscure,
-                              decoration: InputDecoration(
-                                prefixIcon: Icon(Icons.lock, color: Color(0xFF125F9D), size: 24),
-                                hintText: "Enter your password",
-                                hintStyle: TextStyle(color: Color(0xFF125F9D), fontSize: 18),
-                                suffixIcon: IconButton(
-                                  icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility, color: Color(0xFF125F9D)),
-                                  onPressed: () => setState(() => _isObscure = !_isObscure),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Color(0xFF125F9D), width: 3.5),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Color(0xFF125F9D), width: 4),
-                                ),
-                                errorBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Colors.red, width: 3.5),
-                                ),
-                                focusedErrorBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                  borderSide: BorderSide(color: Colors.red, width: 4),
+                        top: _getPasswordFieldTopPosition(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: MediaQuery.of(context).size.width - 80,
+                              child: SlideTransition(
+                                position: _animations[2],
+                                child: TextFormField(
+                                  controller: _passwordController,
+                                  obscureText: _isObscure,
+                                  decoration: InputDecoration(
+                                    prefixIcon: Icon(Icons.lock, color: Color(0xFF125F9D), size: 24),
+                                    hintText: "Enter your password",
+                                    hintStyle: TextStyle(color: Color(0xFF125F9D), fontSize: 18),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(_isObscure ? Icons.visibility_off : Icons.visibility, color: Color(0xFF125F9D)),
+                                      onPressed: () => setState(() => _isObscure = !_isObscure),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Color(0xFF125F9D), width: 3.5),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Color(0xFF125F9D), width: 4),
+                                    ),
+                                    errorBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Colors.red, width: 3.5),
+                                    ),
+                                    focusedErrorBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(20),
+                                      borderSide: BorderSide(color: Colors.red, width: 4),
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your password';
+                                    }
+                                    if (value.length < 6) {
+                                      return 'Password must be at least 6 characters';
+                                    }
+                                    return null;
+                                  },
                                 ),
                               ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your password';
-                                }
-                                if (value.length < 6) {
-                                  return 'Password must be at least 6 characters';
-                                }
-                                return null;
-                              },
                             ),
-                          ),
+                            if (_errorMessage.isNotEmpty && !_isEmailError(_errorMessage))
+                              Container(
+                                width: MediaQuery.of(context).size.width - 80,
+                                margin: EdgeInsets.only(top: 6),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.error_outline, color: Colors.red[600], size: 14),
+                                    SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        _formatErrorMessage(_errorMessage),
+                                        style: TextStyle(
+                                          color: Colors.red[600], 
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500
+                                        ),
+                                        textAlign: TextAlign.left,
+                                        overflow: TextOverflow.visible,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       
                       // Forget password
                       Positioned(
-                        top: _isKeyboardVisible ? 290 : 448,
+                        top: _getForgetPasswordTopPosition(),
                         right: 0,
                         child: SlideTransition(
                           position: _animations[3],
@@ -414,7 +540,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       
                       // Login button
                       Positioned(
-                        top: _isKeyboardVisible ? 330 : 500,
+                        top: _getLoginButtonTopPosition(),
                         child: SlideTransition(
                           position: _animations[4],
                           child: SizedBox(
@@ -448,7 +574,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       
                       // Divider
                       Positioned(
-                        top: _isKeyboardVisible ? 400 : 570,
+                        top: _getDividerTopPosition(),
                         child: Container(
                           width: MediaQuery.of(context).size.width - 80,
                           child: SlideTransition(
@@ -460,7 +586,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       
                       // Google button
                       Positioned(
-                        top: _isKeyboardVisible ? 450 : 620,
+                        top: _getGoogleButtonTopPosition(),
                         child: SlideTransition(
                           position: _animations[6],
                           child: Container(
@@ -510,7 +636,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     
                       // Signup text
                       Positioned(
-                        top: _isKeyboardVisible ? 510 : 680,
+                        top: _getSignupTextTopPosition(),
                         child: SlideTransition(
                           position: _animations[7],
                           child: Row(
@@ -557,6 +683,60 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         Expanded(child: Divider(thickness: 1.5, color: Color(0xFF125F9D))),
       ],
     );
+  }
+
+  String _formatErrorMessage(String errorMessage) {
+    // Clean up Firebase error messages
+    String cleanedMessage = errorMessage;
+    
+    // Handle specific Firebase error messages to make them more user-friendly and concise
+    if (cleanedMessage.contains('auth/wrong-password') || 
+        cleanedMessage.contains('credential is incorrect') ||
+        cleanedMessage.contains('invalid-credential')) {
+      return 'Incorrect email or password';
+    }
+    
+    if (cleanedMessage.contains('auth/user-not-found')) {
+      return 'No account found with this email';
+    }
+    
+    if (cleanedMessage.contains('auth/too-many-requests')) {
+      return 'Too many login attempts, try again later';
+    }
+    
+    if (cleanedMessage.contains('auth/network-request-failed')) {
+      return 'Network error, check your connection';
+    }
+    
+    if (cleanedMessage.contains('auth/invalid-email')) {
+      return 'Invalid email address';
+    }
+    
+    if (cleanedMessage.contains('auth/user-disabled')) {
+      return 'This account has been disabled';
+    }
+    
+    // For any other message, clean and format it
+    if (cleanedMessage.startsWith('Firebase: ')) {
+      cleanedMessage = cleanedMessage.substring('Firebase: '.length);
+    }
+    
+    if (cleanedMessage.startsWith('FirebaseError: ')) {
+      cleanedMessage = cleanedMessage.substring('FirebaseError: '.length);
+    }
+    
+    // Make the message concise - keep only the first sentence
+    int firstPeriod = cleanedMessage.indexOf('.');
+    if (firstPeriod > 0) {
+      cleanedMessage = cleanedMessage.substring(0, firstPeriod + 1);
+    }
+    
+    // Make sure first letter is uppercase
+    if (cleanedMessage.isNotEmpty) {
+      cleanedMessage = cleanedMessage[0].toUpperCase() + cleanedMessage.substring(1);
+    }
+    
+    return cleanedMessage;
   }
 }
 
