@@ -351,6 +351,13 @@ class _UploadScreenState extends State<UploadScreen> {
                               buttonTheme: ButtonThemeData(
                                 alignedDropdown: true,
                               ),
+                              // Add custom dropdown styling
+                              popupMenuTheme: PopupMenuThemeData(
+                                elevation: 8,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                              ),
                             ),
                             child: DropdownButtonHideUnderline(
                               child: ButtonTheme(
@@ -367,27 +374,82 @@ class _UploadScreenState extends State<UploadScreen> {
                                     child: Icon(Icons.arrow_drop_down, color: orangeColor),
                                   ),
                                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  borderRadius: BorderRadius.circular(10),
-                                  menuMaxHeight: 250,
+                                  borderRadius: BorderRadius.circular(15),
+                                  // Limit height to show only 3 items
+                                  menuMaxHeight: 156, // Height for approximately 3 items
+                                  dropdownColor: Colors.white,
+                                  elevation: 8,
+                                  // Custom menu item builder
+                                  selectedItemBuilder: (BuildContext context) {
+                                    return List.generate(_selectedFiles.length, (index) {
+                                      final fileName = _selectedFiles[index].nameController.text;
+                                      
+                                      return Row(
+                                        children: [
+                                          Container(
+                                            padding: EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: orangeColor.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Icon(
+                                              _getIconForType(_selectedFiles[index].fileName),
+                                              color: orangeColor,
+                                              size: 18,
+                                            ),
+                                          ),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              fileName,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    });
+                                  },
                                   items: List.generate(_selectedFiles.length, (index) {
                                     final fileName = _selectedFiles[index].nameController.text;
                                     final fileType = _getFileExtension(_selectedFiles[index].fileName);
                                     
                                     return DropdownMenuItem<int>(
                                       value: index,
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(vertical: 6.0),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: _activeDocumentIndex == index 
+                                            ? blueColor.withOpacity(0.1) 
+                                            : Colors.transparent,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        margin: EdgeInsets.symmetric(vertical: 2),
+                                        padding: EdgeInsets.symmetric(vertical: 8, horizontal: 6),
                                         child: Row(
                                           children: [
                                             Container(
                                               padding: EdgeInsets.all(6),
                                               decoration: BoxDecoration(
-                                                color: orangeColor.withOpacity(0.1),
+                                                color: _activeDocumentIndex == index
+                                                  ? blueColor.withOpacity(0.15)
+                                                  : orangeColor.withOpacity(0.1),
                                                 borderRadius: BorderRadius.circular(6),
+                                                boxShadow: _activeDocumentIndex == index ? [
+                                                  BoxShadow(
+                                                    color: blueColor.withOpacity(0.15),
+                                                    blurRadius: 4,
+                                                    offset: Offset(0, 2),
+                                                  )
+                                                ] : [],
                                               ),
                                               child: Icon(
                                                 _getIconForType(_selectedFiles[index].fileName),
-                                                color: orangeColor,
+                                                color: _activeDocumentIndex == index
+                                                  ? blueColor
+                                                  : orangeColor,
                                                 size: 18,
                                               ),
                                             ),
@@ -401,6 +463,9 @@ class _UploadScreenState extends State<UploadScreen> {
                                                       ? FontWeight.bold 
                                                       : FontWeight.normal,
                                                   fontSize: 15,
+                                                  color: _activeDocumentIndex == index
+                                                      ? blueColor
+                                                      : Colors.black87,
                                                 ),
                                               ),
                                             ),
@@ -476,17 +541,76 @@ class _UploadScreenState extends State<UploadScreen> {
                     _selectedFiles[_activeDocumentIndex].type : null,
                   hint: Text('Select Type'),
                   isExpanded: true,
-                  icon: Icon(Icons.arrow_drop_down, size: 24),
+                  icon: Container(
+                    padding: EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: orangeColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(Icons.arrow_drop_down, color: orangeColor),
+                  ),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  // Limit height to show only 3 items
+                  menuMaxHeight: 156, // Height for approximately 3 items
+                  elevation: 8,
+                  selectedItemBuilder: (BuildContext context) {
+                    return _documentTypes.map((String type) {
+                      return Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: orangeColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(_getIconForDocType(type), color: orangeColor, size: 18),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              type,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 15),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList();
+                  },
                   items: _documentTypes.map((String type) {
                     return DropdownMenuItem<String>(
                       value: type,
-                      child: Text(type),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(vertical: 5),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: orangeColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(_getIconForDocType(type), color: orangeColor, size: 18),
+                            ),
+                            SizedBox(width: 12),
+                            Text(
+                              type,
+                              style: TextStyle(
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   }).toList(),
                   onChanged: (String? newValue) {
@@ -518,17 +642,112 @@ class _UploadScreenState extends State<UploadScreen> {
                     _selectedFiles[_activeDocumentIndex].category : null,
                   hint: Text('Select Category'),
                   isExpanded: true,
-                  icon: Icon(Icons.arrow_drop_down, size: 24),
+                  icon: Container(
+                    padding: EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: orangeColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(Icons.arrow_drop_down, color: orangeColor),
+                  ),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  // Limit height to show only 3 items
+                  menuMaxHeight: 156, // Height for approximately 3 items
+                  elevation: 8,
+                  selectedItemBuilder: (BuildContext context) {
+                    return _categories.map((String category) {
+                      IconData categoryIcon;
+                      switch(category) {
+                        case 'Lecture':
+                          categoryIcon = Icons.mic;
+                          break;
+                        case 'Presentation':
+                          categoryIcon = Icons.slideshow;
+                          break;
+                        case 'Notes':
+                          categoryIcon = Icons.note;
+                          break;
+                        case 'Handwritten Notes':
+                          categoryIcon = Icons.edit_note;
+                          break;
+                        default:
+                          categoryIcon = Icons.article;
+                      }
+                      
+                      return Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: orangeColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(categoryIcon, color: orangeColor, size: 18),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              category,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 15),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList();
+                  },
                   items: _categories.map((String category) {
+                    IconData categoryIcon;
+                    switch(category) {
+                      case 'Lecture':
+                        categoryIcon = Icons.mic;
+                        break;
+                      case 'Presentation':
+                        categoryIcon = Icons.slideshow;
+                        break;
+                      case 'Notes':
+                        categoryIcon = Icons.note;
+                        break;
+                      case 'Handwritten Notes':
+                        categoryIcon = Icons.edit_note;
+                        break;
+                      default:
+                        categoryIcon = Icons.article;
+                    }
+                    
                     return DropdownMenuItem<String>(
                       value: category,
-                      child: Text(category),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(vertical: 5),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: orangeColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(categoryIcon, color: orangeColor, size: 18),
+                            ),
+                            SizedBox(width: 12),
+                            Text(
+                              category,
+                              style: TextStyle(
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   }).toList(),
                   onChanged: (String? newValue) {
@@ -574,17 +793,76 @@ class _UploadScreenState extends State<UploadScreen> {
                     _selectedFiles[_activeDocumentIndex].semester : null,
                   hint: Text('Select Semester'),
                   isExpanded: true,
-                  icon: Icon(Icons.arrow_drop_down, size: 24),
+                  icon: Container(
+                    padding: EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: orangeColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(Icons.arrow_drop_down, color: orangeColor),
+                  ),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                    filled: true,
+                    fillColor: Colors.white,
                   ),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  // Limit height to show only 3 items
+                  menuMaxHeight: 156, // Height for approximately 3 items
+                  elevation: 8,
+                  selectedItemBuilder: (BuildContext context) {
+                    return _semesters.map((String semester) {
+                      return Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: orangeColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(Icons.calendar_today, color: orangeColor, size: 18),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              semester,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 15),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList();
+                  },
                   items: _semesters.map((String semester) {
                     return DropdownMenuItem<String>(
                       value: semester,
-                      child: Text(semester),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(vertical: 5),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: orangeColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(Icons.calendar_today, color: orangeColor, size: 18),
+                            ),
+                            SizedBox(width: 12),
+                            Text(
+                              semester,
+                              style: TextStyle(
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   }).toList(),
                   onChanged: (String? newValue) {
@@ -615,18 +893,77 @@ class _UploadScreenState extends State<UploadScreen> {
                   value: _selectedFiles.isNotEmpty ? 
                     _selectedFiles[_activeDocumentIndex].department : 'IT (Arfa Karim)',
                   isExpanded: true,
-                  icon: Icon(Icons.arrow_drop_down, size: 24),
+                  icon: Container(
+                    padding: EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: orangeColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(Icons.arrow_drop_down, color: orangeColor),
+                  ),
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+                    filled: true,
+                    fillColor: Colors.white,
                     helperText: 'Example: IT (Arfa Karim)',
                   ),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  // Limit height to show only 3 items
+                  menuMaxHeight: 156, // Height for approximately 3 items
+                  elevation: 8,
+                  selectedItemBuilder: (BuildContext context) {
+                    return _departments.map((String department) {
+                      return Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: orangeColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(Icons.school, color: orangeColor, size: 18),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              department,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 15),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList();
+                  },
                   items: _departments.map((String department) {
                     return DropdownMenuItem<String>(
                       value: department,
-                      child: Text(department),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(vertical: 5),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: orangeColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(Icons.school, color: orangeColor, size: 18),
+                            ),
+                            SizedBox(width: 12),
+                            Text(
+                              department,
+                              style: TextStyle(
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   }).toList(),
                   onChanged: (String? newValue) {
