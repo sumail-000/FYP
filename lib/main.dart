@@ -9,12 +9,21 @@ import 'dashboard/dashboard_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'auth/auth_service.dart';
 import 'auth/auth_state_wrapper.dart';
+import 'config/env_config.dart';
+import 'upload/upload_screen.dart';
+// DocumentsScreen will be implemented later
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  
+  // Initialize EnvConfig to load Cloudinary credentials
+  await EnvConfig.initialize();
+  
   runApp(const MyApp());
 }
 
@@ -38,6 +47,8 @@ class MyApp extends StatelessWidget {
         '/signup': (context) => SignupScreen(),
         '/reset-password': (context) => ResetPasswordScreen(),
         '/home': (context) => AuthStateWrapper(),
+        '/upload': (context) => UploadScreen(),
+        // Documents screen will be implemented later
       },
     );
   }
