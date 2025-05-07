@@ -70,7 +70,10 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
     });
 
     try {
+      print('Loading user\'s uploaded documents...');
       final documents = await _uploadService.getRecentDocuments();
+      print('Loaded ${documents.length} user documents');
+      
       setState(() {
         _documents = documents;
         _isLoading = false;
@@ -81,6 +84,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
       _extractFilterCategories();
       _applyFilters();
     } catch (e) {
+      print('Error loading user documents: $e');
       setState(() {
         _errorMessage = 'Failed to load documents: $e';
         _isLoading = false;
@@ -207,7 +211,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
                   autofocus: true,
                 )
                 : Text(
-                  'Recently Uploaded',
+                  'My Uploads',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
@@ -364,7 +368,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
             ),
             SizedBox(height: 24),
             Text(
-              'No documents yet',
+              'You haven\'t uploaded any documents yet',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -375,7 +379,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 48),
               child: Text(
-                'Upload your first document to see it here',
+                'Documents you upload will appear here for easy management',
                 style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                 textAlign: TextAlign.center,
               ),
@@ -823,7 +827,11 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
 
                       // Download button
                       TextButton.icon(
-                        onPressed: () => _downloadDocument(fileUrl, fileName),
+                        onPressed: () {
+                          // Always use the secureUrl for downloads when available
+                          final downloadUrl = data['secureUrl'] ?? data['url'] ?? '';
+                          _downloadDocument(downloadUrl, fileName);
+                        },
                         icon: Icon(Icons.download, size: 18),
                         label: Text('Download'),
                         style: TextButton.styleFrom(
@@ -1158,7 +1166,6 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
         SnackBar(
           content: Text('Download URL not available'),
           backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -1448,7 +1455,9 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
           // Auto close dialog when download completes
           if (newProgress >= 1.0) {
             Future.delayed(Duration(seconds: 2), () {
-              Navigator.of(context).pop(); // Close the progress dialog
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop(); // Close the progress dialog
+              }
             });
           }
         });
@@ -1456,22 +1465,28 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
         // On web, just open the URL in a new tab and close the progress dialog
         await _openInBrowser(url);
         progressController.add(1.0);
-        Navigator.of(context).pop();
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
       }
     } catch (e) {
       // Close the progress dialog
-      Navigator.of(context).pop();
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
 
-      // Show error message
+      // Show error message with option to open in browser instead
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Download failed: ${e.toString().split(':').first}'),
+          content: Text('Download failed. Try opening document in browser instead.'),
           backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 5),
           action: SnackBarAction(
-            label: 'RETRY',
+            label: 'Open in Browser',
             textColor: Colors.white,
-            onPressed: () => _startDownloadToDevice(url, fileName),
+            onPressed: () async {
+              _openInBrowser(url);
+            },
           ),
         ),
       );
@@ -2234,44 +2249,31 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
 
   // Method to open a URL in browser
   Future<void> _openInBrowser(String url) async {
-    final Uri uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      throw Exception('Could not launch $url');
-    }
-  }
-
-  // Helper method to get the best possible downloads directory
-  Future<Directory> getDownloadsDirectory() async {
-    // Try standard path for Downloads directory - no permission check needed
-    Directory downloadsDir = Directory('/storage/emulated/0/Download');
-
-    // Check if directory exists and is accessible (don't write test file)
-    if (await downloadsDir.exists()) {
-      try {
-        // Just list the directory to see if we can access it
-        await downloadsDir.list().first;
-        print('Using public Downloads directory');
-        return downloadsDir;
-      } catch (e) {
-        print('Downloads directory exists but not accessible: $e');
-      }
-    }
-
-    // Second option: external storage directory for app
     try {
-      final extDir = await getExternalStorageDirectory();
-      if (extDir != null) {
-        print('Using app external storage: ${extDir.path}');
-        return extDir;
+      // Clean up URL for browser viewing (remove download parameters)
+      if (url.contains('fl_attachment=true')) {
+        url = url.replaceAll('fl_attachment=true', '');
+        // Clean up leftover characters
+        url = url.replaceAll('?&', '?').replaceAll('&&', '&');
+        if (url.endsWith('?') || url.endsWith('&')) {
+          url = url.substring(0, url.length - 1);
+        }
       }
+      
+      // Launch URL in browser
+      final Uri uri = Uri.parse(url);
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
-      print('Error getting external directory: $e');
+      print('Error opening in browser: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open document: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
-
-    // Last resort: internal app documents directory
-    final appDir = await getApplicationDocumentsDirectory();
-    print('Using internal app storage: ${appDir.path}');
-    return appDir;
   }
 
   // Method to download a file to device with progress tracking
@@ -2283,15 +2285,35 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
     try {
       // Create dio instance
       final dio = Dio();
+      
+      // For Cloudinary, simplify our approach - no validation or HEAD requests
+      if (url.contains('cloudinary.com')) {
+        // Ensure we're using https
+        if (url.startsWith('http:')) {
+          url = url.replaceFirst('http:', 'https:');
+        }
+        
+        // Strip any existing parameters
+        if (url.contains('?')) {
+          url = url.split('?')[0];
+        }
+        
+        // For direct downloads, don't add any parameters
+        print('Using direct Cloudinary URL: $url');
+      }
 
       // Fix file name to ensure it has extension
       if (!fileName.contains('.')) {
-        // Try to extract extension from URL if file name doesn't have one
         final urlExtension = url.split('.').last.split('?').first;
         if (urlExtension.length <= 4) {
           fileName = '$fileName.$urlExtension';
         }
       }
+
+      // Set minimal headers for Cloudinary
+      dio.options.headers = {
+        'Accept': '*/*',
+      };
 
       // Determine where to save the file
       String filePath;
@@ -2365,7 +2387,25 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
             print('Download progress: ${(progress * 100).toStringAsFixed(0)}%');
           }
         },
+        options: Options(
+          receiveTimeout: Duration(minutes: 5),
+          sendTimeout: Duration(minutes: 5),
+        ),
       );
+      
+      // Verify the downloaded file exists and has content
+      final savedFile = File(uniqueFilePath);
+      if (await savedFile.exists()) {
+        final fileSize = await savedFile.length();
+        print('File saved: $uniqueFilePath (${fileSize} bytes)');
+        
+        // If the file size is zero, the download failed silently
+        if (fileSize == 0) {
+          throw Exception('Downloaded file is empty (0 bytes). Download likely failed.');
+        }
+      } else {
+        throw Exception('File was not created at $uniqueFilePath');
+      }
 
       // Show success notification with file location
       final savedFileName = uniqueFilePath.split('/').last;
@@ -2477,8 +2517,62 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
       }
     } catch (e) {
       print('Download error: $e');
-      throw Exception('Failed to download file: $e');
+      
+      // If we were showing a progress dialog, close it
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      
+      // Show error message with option to open in browser instead
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Download failed. Try opening document in browser instead.'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Open in Browser',
+            textColor: Colors.white,
+            onPressed: () async {
+              _openInBrowser(url);
+            },
+          ),
+        ),
+      );
     }
+  }
+
+  // Helper method to get the best possible downloads directory
+  Future<Directory> getDownloadsDirectory() async {
+    // Try standard path for Downloads directory - no permission check needed
+    Directory downloadsDir = Directory('/storage/emulated/0/Download');
+
+    // Check if directory exists and is accessible (don't write test file)
+    if (await downloadsDir.exists()) {
+      try {
+        // Just list the directory to see if we can access it
+        await downloadsDir.list().first;
+        print('Using public Downloads directory');
+        return downloadsDir;
+      } catch (e) {
+        print('Downloads directory exists but not accessible: $e');
+      }
+    }
+
+    // Second option: external storage directory for app
+    try {
+      final extDir = await getExternalStorageDirectory();
+      if (extDir != null) {
+        print('Using app external storage: ${extDir.path}');
+        return extDir;
+      }
+    } catch (e) {
+      print('Error getting external directory: $e');
+    }
+
+    // Last resort: internal app documents directory
+    final appDir = await getApplicationDocumentsDirectory();
+    print('Using internal app storage: ${appDir.path}');
+    return appDir;
   }
 
   // Add helper method to get Android version
@@ -2510,3 +2604,4 @@ class FilePathClipper extends CustomClipper<Path> {
   @override
   bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }
+ 

@@ -80,10 +80,23 @@ class _ProfileCompletionWrapperState extends State<ProfileCompletionWrapper> {
         
         // Check if widget is still mounted before navigating
         if (mounted) {
-          // Successfully completed profile - navigate to home
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => DashboardScreen()),
-          );
+          // Route users based on their role
+          if (_selectedRole == UserRole.student) {
+            // Student users go to the main dashboard
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => DashboardScreen()),
+            );
+          } else if (_selectedRole == UserRole.teacher) {
+            // Teacher users go to teacher screen (temporarily unavailable)
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => _buildTeacherPendingScreen()),
+            );
+          } else {
+            // Default case - shouldn't happen normally
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => DashboardScreen()),
+            );
+          }
         }
       } catch (e) {
         // Handle error
@@ -100,6 +113,92 @@ class _ProfileCompletionWrapperState extends State<ProfileCompletionWrapper> {
         );
       }
     }
+  }
+  
+  // Temporary screen for teacher role until teacher dashboard is implemented
+  Widget _buildTeacherPendingScreen() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(
+          "Teacher Portal",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Color(0xFFF26712), // Use orange color for teacher
+        actions: [
+          // Allow logout
+          IconButton(
+            icon: Icon(Icons.logout),
+            onPressed: () async {
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              }
+            },
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.construction,
+                size: 80,
+                color: Color(0xFFF26712),
+              ),
+              SizedBox(height: 30),
+              Text(
+                "Teacher Portal Coming Soon",
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF125F9D),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 16),
+              Text(
+                "We're working hard to bring you a dedicated teacher dashboard with all the tools you need to share educational content.",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[700],
+                ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 40),
+              ElevatedButton(
+                onPressed: () async {
+                  await _authService.signOut();
+                  if (mounted) {
+                    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(0xFFF26712),
+                  padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+                child: Text(
+                  "Sign Out",
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
   
   @override

@@ -1,0 +1,1067 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:developer' as developer;
+import '../auth/auth_service.dart';
+import 'chat_service.dart';
+import 'chat_message.dart';
+import 'package:intl/intl.dart';
+
+class ChatRoomScreen extends StatefulWidget {
+  const ChatRoomScreen({Key? key}) : super(key: key);
+
+  @override
+  _ChatRoomScreenState createState() => _ChatRoomScreenState();
+}
+
+class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObserver {
+  final AuthService _authService = AuthService();
+  final ChatService _chatService = ChatService();
+  final TextEditingController _messageController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
+  int _onlineUsersCount = 0;
+  bool _isLoading = false;
+  bool _isSending = false;
+  List<Map<String, dynamic>> _onlineUsers = [];
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _isKeyboardVisible = false;
+
+  // App colors
+  final Color blueColor = const Color(0xFF2D6DA8);
+  final Color orangeColor = const Color(0xFFf06517);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadOnlineUsersCount();
+    _updateUserPresence();
+    _setupKeyboardListeners();
+    developer.log('ChatRoomScreen initialized', name: 'ChatRoom');
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _messageController.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
+    _markUserOffline();
+    super.dispose();
+  }
+
+  void _setupKeyboardListeners() {
+    _focusNode.addListener(_onFocusChange);
+    _messageController.addListener(_onTextChange);
+  }
+
+  void _onFocusChange() {
+    if (_focusNode.hasFocus) {
+      // Slight delay to ensure the keyboard is fully visible
+      Future.delayed(const Duration(milliseconds: 300), _scrollToBottom);
+    }
+  }
+
+  void _onTextChange() {
+    if (_messageController.text.isNotEmpty && _isKeyboardVisible) {
+      _scrollToBottom();
+    }
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateUserPresence();
+    } else if (state == AppLifecycleState.paused || 
+               state == AppLifecycleState.detached) {
+      _markUserOffline();
+    }
+  }
+
+  Future<void> _updateUserPresence() async {
+    try {
+      await _chatService.updateUserPresence();
+    } catch (e) {
+      developer.log('Error updating user presence: $e', name: 'ChatRoom');
+    }
+  }
+
+  Future<void> _markUserOffline() async {
+    try {
+      await _chatService.markUserOffline();
+    } catch (e) {
+      developer.log('Error marking user offline: $e', name: 'ChatRoom');
+    }
+  }
+
+  Future<void> _loadOnlineUsersCount() async {
+    try {
+      final count = await _chatService.getOnlineUsersCount();
+      setState(() {
+        _onlineUsersCount = count;
+      });
+    } catch (e) {
+      developer.log('Error loading online users count: $e', name: 'ChatRoom');
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty || _isSending) return;
+
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You need to be logged in to send messages')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSending = true;
+    });
+
+    try {
+      // Get user data for sender name and profile picture
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
+
+      String senderName = 'Anonymous';
+      String? profileUrl;
+
+      if (userDoc.exists) {
+        final userData = userDoc.data() as Map<String, dynamic>;
+        senderName = userData['name'] ?? currentUser.email?.split('@').first ?? 'Anonymous';
+        profileUrl = userData['profileImageUrl'];
+
+        // If profile image not found in users collection, check profiles collection
+        if (profileUrl == null) {
+          final profileDoc = await FirebaseFirestore.instance
+              .collection('profiles')
+              .doc(currentUser.uid)
+              .get();
+
+          if (profileDoc.exists) {
+            final profileData = profileDoc.data() as Map<String, dynamic>;
+            profileUrl = profileData['secureUrl'];
+          }
+        }
+      }
+
+      await _chatService.sendMessage(
+        senderId: currentUser.uid,
+        senderName: senderName,
+        senderProfileUrl: profileUrl,
+        text: text,
+      );
+
+      _messageController.clear();
+      // Scroll to bottom after sending message
+      _scrollToBottom();
+    } catch (e) {
+      developer.log('Error sending message: $e', name: 'ChatRoom');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send message: ${e.toString()}')),
+      );
+    } finally {
+      setState(() {
+        _isSending = false;
+      });
+    }
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final messageDate = DateTime(timestamp.year, timestamp.month, timestamp.day);
+
+    if (messageDate == today) {
+      // Today, show only time
+      return DateFormat.jm().format(timestamp);
+    } else if (messageDate == today.subtract(const Duration(days: 1))) {
+      // Yesterday
+      return 'Yesterday, ${DateFormat.jm().format(timestamp)}';
+    } else {
+      // Other days
+      return DateFormat('MMM d, h:mm a').format(timestamp);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    final width = screenSize.width;
+    final height = screenSize.height;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final isKeyboardOpen = bottomInset > 0;
+    
+    // Update keyboard visibility state
+    if (_isKeyboardVisible != isKeyboardOpen) {
+      _isKeyboardVisible = isKeyboardOpen;
+      if (isKeyboardOpen) {
+        // Slight delay to ensure the keyboard is fully visible
+        Future.delayed(const Duration(milliseconds: 300), _scrollToBottom);
+      }
+    }
+
+    return GestureDetector(
+      onTap: () {
+        // Dismiss keyboard when tapping outside of text field
+        FocusScope.of(context).unfocus();
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: Colors.grey[100],
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          backgroundColor: blueColor,
+          elevation: 0,
+          title: const Text(
+            'Live ChatRoom',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          actions: [
+            // Online users indicator - now clickable to show drawer
+            InkWell(
+              onTap: () {
+                _scaffoldKey.currentState?.openEndDrawer();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _chatService.getOnlineUsersStream(),
+                  builder: (context, snapshot) {
+                    int count = 0;
+                    if (snapshot.hasData) {
+                      count = snapshot.data!.length;
+                    }
+                    return Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.greenAccent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$count Online',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.people,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+        // End drawer to show online users
+        endDrawer: _buildOnlineUsersDrawer(),
+      body: SafeArea(
+        child: Column(
+          children: [
+              // Header banner
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: double.infinity,
+                padding: EdgeInsets.symmetric(
+                  horizontal: 16, 
+                  vertical: isKeyboardOpen ? 6 : 12
+                ),
+              decoration: BoxDecoration(
+                color: blueColor,
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: isKeyboardOpen 
+                  ? null // Hide content when keyboard is open to save space
+                  : Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.shield,
+                          color: orangeColor,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                            Text(
+                              'Community Chat',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                    ),
+                  ),
+                            const SizedBox(height: 2),
+                  Text(
+                              'Ask questions, share resources, and connect with peers',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Chat messages
+            Expanded(
+                child: StreamBuilder<List<ChatMessage>>(
+                  stream: _chatService.getMessagesStream(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                      return const Center(
+                        child: CircularProgressIndicator(),
+                      );
+                    }
+
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.red[300],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Error loading messages',
+                              style: TextStyle(color: Colors.grey[700]),
+                            ),
+                            TextButton(
+                              onPressed: () => setState(() {}),
+                              child: const Text('Try Again'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    final messages = snapshot.data ?? [];
+                    
+                    // Reverse the messages to show newest at the bottom
+                    final displayMessages = messages.reversed.toList();
+
+                    if (displayMessages.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.chat_bubble_outline,
+                              size: 64,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No messages yet',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Be the first to start the conversation!',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      controller: _scrollController,
+                      reverse: true, // Reverse to show newest at the bottom
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      itemCount: displayMessages.length,
+                      itemBuilder: (context, index) {
+                        final message = displayMessages[index];
+                        final isMe = message.senderId == _authService.currentUser?.uid;
+                        final showSenderInfo = index == 0 || 
+                            displayMessages[index - 1].senderId != message.senderId;
+
+                        // Show date separator if needed
+                        bool showDateSeparator = false;
+                        String dateText = '';
+                        
+                        if (index == 0) {
+                          showDateSeparator = true;
+                          dateText = _getDateText(message.timestamp);
+                        } else {
+                          final prevMessage = displayMessages[index - 1];
+                          final prevDate = DateTime(
+                            prevMessage.timestamp.year,
+                            prevMessage.timestamp.month,
+                            prevMessage.timestamp.day,
+                          );
+                          final currentDate = DateTime(
+                            message.timestamp.year,
+                            message.timestamp.month,
+                            message.timestamp.day,
+                          );
+                          
+                          if (prevDate != currentDate) {
+                            showDateSeparator = true;
+                            dateText = _getDateText(message.timestamp);
+                          }
+                        }
+
+                        return Column(
+                children: [
+                            if (showDateSeparator)
+                              _buildDateSeparator(dateText),
+                            _buildMessageItem(message, isMe, showSenderInfo),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+
+            // Input field
+            Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 4,
+                      offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(color: Colors.grey[300]!),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(width: 16),
+                  Expanded(
+                    child: TextField(
+                                controller: _messageController,
+                                focusNode: _focusNode,
+                      decoration: InputDecoration(
+                                  hintText: 'Type your message...',
+                                  border: InputBorder.none,
+                                  hintStyle: TextStyle(color: Colors.grey[500]),
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                                ),
+                                maxLines: null,
+                                textInputAction: TextInputAction.send,
+                                keyboardAppearance: Brightness.light,
+                                onSubmitted: (_) => _sendMessage(),
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.emoji_emotions_outlined, color: Colors.grey[600]),
+                              onPressed: () {
+                                // Emoji picker would be implemented here
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Emoji picker coming soon!')),
+                                );
+                              },
+                            ),
+                          ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                        color: orangeColor,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: orangeColor.withOpacity(0.4),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: IconButton(
+                        icon: _isSending
+                            ? SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.send, color: Colors.white),
+                        onPressed: _isSending ? null : _sendMessage,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOnlineUsersDrawer() {
+    return Drawer(
+      width: MediaQuery.of(context).size.width * 0.75,
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.only(
+              top: MediaQuery.of(context).padding.top + 16,
+              bottom: 16,
+              left: 16,
+              right: 16,
+            ),
+            color: blueColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.people,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Online Members',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _chatService.getOnlineUsersStream(),
+                  builder: (context, snapshot) {
+                    int count = 0;
+                    if (snapshot.hasData) {
+                      count = snapshot.data!.length;
+                    }
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        '$count ${count == 1 ? 'person' : 'people'} online now',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _chatService.getOnlineUsersStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error loading online users'),
+                  );
+                }
+
+                final onlineUsers = snapshot.data ?? [];
+
+                if (onlineUsers.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.people_outline,
+                          size: 64,
+                          color: Colors.grey[400],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No one else is online',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: onlineUsers.length,
+                  itemBuilder: (context, index) {
+                    final user = onlineUsers[index];
+                    final isCurrentUser = user['userId'] == _authService.currentUser?.uid;
+                    
+                    return Card(
+                      elevation: 0,
+                      color: isCurrentUser ? orangeColor.withOpacity(0.1) : Colors.white,
+                      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: isCurrentUser ? orangeColor.withOpacity(0.3) : Colors.grey.withOpacity(0.2),
+                          width: 1,
+                        ),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        leading: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: blueColor.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.greenAccent,
+                              width: 2,
+                            ),
+                          ),
+                          child: user['profileUrl'] != null
+                              ? ClipOval(
+                                  child: Image.network(
+                                    user['profileUrl'],
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Center(
+                                        child: Text(
+                                          user['userName'][0].toUpperCase(),
+                                          style: TextStyle(
+                                            color: blueColor,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                )
+                              : Center(
+                                  child: Text(
+                                    user['userName'][0].toUpperCase(),
+                                    style: TextStyle(
+                      color: blueColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        title: Text(
+                          user['userName'],
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: isCurrentUser ? orangeColor : Colors.black87,
+                          ),
+                        ),
+                        subtitle: Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              margin: const EdgeInsets.only(right: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.greenAccent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            Text(
+                              isCurrentUser ? 'You (Online)' : 'Online',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                        trailing: isCurrentUser
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: orangeColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: orangeColor.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  'You',
+                                  style: TextStyle(
+                                    color: orangeColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              )
+                            : null,
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Chat with your peers and get help with your studies',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  style: TextButton.styleFrom(
+                    backgroundColor: blueColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getDateText(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    
+    if (dateOnly == today) {
+      return 'Today';
+    } else if (dateOnly == yesterday) {
+      return 'Yesterday';
+    } else {
+      return DateFormat('MMMM d, yyyy').format(date);
+    }
+  }
+
+  Widget _buildDateSeparator(String text) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(color: Colors.grey[300], thickness: 1),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: Colors.grey[700],
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Divider(color: Colors.grey[300], thickness: 1),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageItem(ChatMessage message, bool isMe, bool showSenderInfo) {
+    // Handle system messages differently
+    if (message.isSystemMessage) {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Divider(color: Colors.grey[300], thickness: 1),
+            ),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 14,
+                    color: blueColor,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    message.text,
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Divider(color: Colors.grey[300], thickness: 1),
+            ),
+          ],
+      ),
+    );
+  }
+
+    // Regular user message
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isMe && showSenderInfo)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: blueColor.withOpacity(0.2),
+                shape: BoxShape.circle,
+                border: Border.all(color: blueColor.withOpacity(0.1), width: 2),
+              ),
+              child: message.senderProfileUrl != null
+                  ? ClipOval(
+                      child: Image.network(
+                        message.senderProfileUrl!,
+                        fit: BoxFit.cover,
+                        width: 36,
+                        height: 36,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Center(
+                            child: Text(
+                              message.senderName.isNotEmpty
+                                  ? message.senderName[0].toUpperCase()
+                                  : '?',
+                              style: TextStyle(
+                                color: blueColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  : Center(
+                      child: Text(
+                        message.senderName.isNotEmpty
+                            ? message.senderName[0].toUpperCase()
+                            : '?',
+                        style: TextStyle(
+                          color: blueColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+            )
+          else if (!isMe && !showSenderInfo)
+            const SizedBox(width: 44),
+          
+          if (isMe) const Spacer(),
+          
+          Column(
+            crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              if (!isMe && showSenderInfo)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 4),
+                  child: Text(
+                    message.senderName,
+                    style: TextStyle(
+                      color: Colors.grey[700],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                
+              Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.7,
+                ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+                  color: isMe 
+                      ? orangeColor.withOpacity(0.1)
+                      : Colors.white,
+          borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isMe ? 16 : 4),
+                    bottomRight: Radius.circular(isMe ? 4 : 16),
+                  ),
+                  border: Border.all(
+                    color: isMe 
+                        ? orangeColor.withOpacity(0.2)
+                        : Colors.grey[300]!,
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      message.text,
+          style: TextStyle(
+            color: Colors.black87,
+            fontSize: 15,
+          ),
+        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatTimestamp(message.timestamp),
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          
+          if (!isMe) const Spacer(),
+        ],
+      ),
+    );
+  }
+} 

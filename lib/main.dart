@@ -11,6 +11,9 @@ import 'auth/auth_service.dart';
 import 'auth/auth_state_wrapper.dart';
 import 'config/env_config.dart';
 import 'upload/upload_screen.dart';
+import 'profile/profile_screen.dart';
+import 'friend_requests/friend_requests_screen.dart';
+import 'friends/friends_screen.dart';
 // DocumentsScreen will be implemented later
 
 void main() async {
@@ -48,6 +51,9 @@ class MyApp extends StatelessWidget {
         '/reset-password': (context) => ResetPasswordScreen(),
         '/home': (context) => AuthStateWrapper(),
         '/upload': (context) => UploadScreen(),
+        '/profile': (context) => ProfileScreen(),
+        '/friend_requests': (context) => FriendRequestsScreen(),
+        '/friends': (context) => FriendsScreen(),
         // Documents screen will be implemented later
       },
     );
@@ -78,8 +84,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           Navigator.of(context).pushReplacementNamed('/home');
         }
       } else {
-        // Navigate to IntroductionScreen after 3 seconds
-        Future.delayed(const Duration(seconds: 3), () {
+    // Navigate to IntroductionScreen after 3 seconds
+    Future.delayed(const Duration(seconds: 3), () {
           if (mounted) {
             Navigator.of(context).pushReplacementNamed('/intro');
           }

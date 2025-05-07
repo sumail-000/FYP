@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:path/path.dart' as path;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../auth/auth_service.dart';
 
 class UploadProgressScreen extends StatefulWidget {
   final List<UploadTask> uploadTasks;
@@ -620,6 +621,9 @@ class UploadTask {
   int _fileSize = 0;
   DateTime? _startTime;
   
+  // Add reference to auth service
+  final AuthService _authService = AuthService();
+  
   UploadTask({
     required this.fileName,
     required this.filePath,
@@ -880,6 +884,9 @@ class UploadTask {
       // Extract file extension from the original file path
       final extension = path.extension(filePath).replaceAll('.', '').toLowerCase();
       
+      // Get current user data
+      final userData = await _authService.getUserData();
+      
       // Create document data for Firestore
       final documentData = {
         ...metadata,
@@ -891,6 +898,11 @@ class UploadTask {
         'createdAt': FieldValue.serverTimestamp(),
         'uploadedAt': FieldValue.serverTimestamp(),
         'bytes': _fileSize,
+        // Add user information
+        'uploaderId': _authService.currentUser?.uid,
+        'uploaderName': userData?.name ?? _authService.currentUser?.displayName ?? 'Anonymous',
+        'uploaderEmail': userData?.email ?? _authService.currentUser?.email,
+        'university': userData?.university,
       };
       
       // Save to Firestore

@@ -484,4 +484,14 @@ class CloudinaryService {
     var digest = crypto.sha1.convert(bytes);
     return digest.toString();
   }
+
+  // Debug method to check if API credentials are properly loaded
+  void debugCredentials() {
+    print('Cloudinary Credentials Debug:');
+    print('Cloud Name: $cloudName');
+    print('Upload Preset: $uploadPreset');
+    print('API Key set: ${EnvConfig.cloudinaryApiKey.isNotEmpty && EnvConfig.cloudinaryApiKey != 'YOUR_API_KEY'}');
+    print('API Secret set: ${EnvConfig.cloudinaryApiSecret.isNotEmpty && EnvConfig.cloudinaryApiSecret != 'YOUR_API_SECRET'}');
+    print('Is Configured: $isConfigured');
+  }
 }

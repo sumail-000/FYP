@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../upload/upload_screen.dart';
+import '../profile/profile_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class DashboardService {
@@ -8,6 +9,14 @@ class DashboardService {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => UploadScreen()),
+    );
+  }
+
+  // Navigate to the profile screen
+  static void navigateToProfileScreen(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ProfileScreen()),
     );
   }
 

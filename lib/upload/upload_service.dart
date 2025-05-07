@@ -6,6 +6,7 @@ import 'cloudinary_service.dart';
 import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'upload_progress_screen.dart';
+import '../auth/auth_service.dart';
 
 class UploadService {
   // Firebase collection for departments
@@ -31,6 +32,9 @@ class UploadService {
 
   // Cloudinary service for file uploads
   final CloudinaryService _cloudinaryService = CloudinaryService();
+
+  // Auth service to get user information
+  final AuthService _authService = AuthService();
 
   // Default departments list (used as fallback if Firebase fails)
   static final List<String> _defaultDepartments = ['IT (Arfa Karim)'];
@@ -596,6 +600,9 @@ class UploadService {
       // Extract file extension from the original file path
       final extension =
           path.extension(filePath).replaceAll('.', '').toLowerCase();
+          
+      // Get current user data for metadata
+      final userData = await _authService.getUserData();
 
       // Store document metadata and Cloudinary response in Firestore
       await _documentsCollection.add({
@@ -611,6 +618,11 @@ class UploadService {
             File(
               filePath,
             ).lengthSync(), // Get file size from file instead of response.bytes
+        // Add user information
+        'uploaderId': _authService.currentUser?.uid,
+        'uploaderName': userData?.name ?? _authService.currentUser?.displayName ?? 'Anonymous',
+        'uploaderEmail': userData?.email ?? _authService.currentUser?.email,
+        'university': userData?.university,
       });
 
       // If department, course, and courseCode are provided, save the mapping
@@ -639,12 +651,19 @@ class UploadService {
   // Get recently uploaded documents
   Future<List<DocumentSnapshot>> getRecentDocuments({int limit = 20}) async {
     try {
-      // Query the documents collection, ordered by upload date
-      final querySnapshot =
-          await _documentsCollection
-              .orderBy('createdAt', descending: true)
-              .limit(limit)
-              .get();
+      // Get current user ID
+      final userId = _authService.currentUser?.uid;
+      
+      if (userId == null) {
+        throw Exception('User not logged in');
+      }
+      
+      // Query the documents collection, filtered by the current user's ID and ordered by upload date
+      final querySnapshot = await _documentsCollection
+          .where('uploaderId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
 
       return querySnapshot.docs;
     } catch (e) {
