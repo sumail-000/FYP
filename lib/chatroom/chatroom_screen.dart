@@ -350,7 +350,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
                   ),
                             const SizedBox(height: 2),
                   Text(
-                              'Ask questions, share resources, and connect with peers',
+                              'Ask questions and connect with peers',
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.9),
                                 fontSize: 12,
@@ -400,8 +400,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
 
                     final messages = snapshot.data ?? [];
                     
-                    // Reverse the messages to show newest at the bottom
-                    final displayMessages = messages.reversed.toList();
+                    // Remove the reverse operation since we want newest at bottom
+                    final displayMessages = messages.toList();
 
                     if (displayMessages.isEmpty) {
                       return Center(
@@ -437,7 +437,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
 
                     return ListView.builder(
                       controller: _scrollController,
-                      reverse: true, // Reverse to show newest at the bottom
+                      reverse: false, // Change to false to show newest at bottom
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       itemCount: displayMessages.length,
                       itemBuilder: (context, index) {
@@ -949,48 +949,54 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!isMe && showSenderInfo)
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: blueColor.withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(color: blueColor.withOpacity(0.1), width: 2),
-              ),
-              child: message.senderProfileUrl != null
-                  ? ClipOval(
-                      child: Image.network(
-                        message.senderProfileUrl!,
-                        fit: BoxFit.cover,
-                        width: 36,
-                        height: 36,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Center(
-                            child: Text(
-                              message.senderName.isNotEmpty
-                                  ? message.senderName[0].toUpperCase()
-                                  : '?',
-                              style: TextStyle(
-                                color: blueColor,
-                                fontWeight: FontWeight.bold,
+            GestureDetector(
+              onTap: () {
+                // Show profile options when tapping on profile picture
+                _showProfileOptions(message.senderId, message.senderName);
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: blueColor.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: blueColor.withOpacity(0.1), width: 2),
+                ),
+                child: message.senderProfileUrl != null
+                    ? ClipOval(
+                        child: Image.network(
+                          message.senderProfileUrl!,
+                          fit: BoxFit.cover,
+                          width: 36,
+                          height: 36,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Center(
+                              child: Text(
+                                message.senderName.isNotEmpty
+                                    ? message.senderName[0].toUpperCase()
+                                    : '?',
+                                style: TextStyle(
+                                  color: blueColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
-                    )
-                  : Center(
-                      child: Text(
-                        message.senderName.isNotEmpty
-                            ? message.senderName[0].toUpperCase()
-                            : '?',
-                        style: TextStyle(
-                          color: blueColor,
-                          fontWeight: FontWeight.bold,
+                            );
+                          },
+                        ),
+                      )
+                    : Center(
+                        child: Text(
+                          message.senderName.isNotEmpty
+                              ? message.senderName[0].toUpperCase()
+                              : '?',
+                          style: TextStyle(
+                            color: blueColor,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
+              ),
             )
           else if (!isMe && !showSenderInfo)
             const SizedBox(width: 44),
@@ -1063,5 +1069,153 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
         ],
       ),
     );
+  }
+
+  // Add this new method to show profile options
+  void _showProfileOptions(String userId, String userName) {
+    showModalBottomSheet(
+      context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext context) {
+        return Container(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Profile header
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: blueColor.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          userName.isNotEmpty ? userName[0].toUpperCase() : '?',
+                          style: TextStyle(
+                            color: blueColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 24,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            userName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Tap to connect',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(),
+              // Connect button
+              ListTile(
+                leading: Icon(Icons.person_add, color: blueColor),
+                title: Text('Send Friend Request'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _sendFriendRequest(userId, userName);
+                },
+              ),
+              // View profile button
+              ListTile(
+                leading: Icon(Icons.person, color: blueColor),
+                title: Text('View Profile'),
+                onTap: () {
+                  Navigator.pop(context);
+                  // TODO: Implement view profile functionality
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Profile view coming soon')),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Add this method to send friend request
+  Future<void> _sendFriendRequest(String recipientId, String recipientName) async {
+    try {
+      final currentUser = _authService.currentUser;
+      if (currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You need to be logged in to send requests')),
+        );
+        return;
+      }
+      
+      // Get current user data
+      final currentUserDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
+          
+      final currentUserData = currentUserDoc.data() as Map<String, dynamic>;
+      final currentUserName = currentUserData['name'] ?? currentUser.displayName ?? 'User';
+      
+      // Check if request already exists
+      final existingRequestQuery = await FirebaseFirestore.instance
+          .collection('friendRequests')
+          .where('senderId', isEqualTo: currentUser.uid)
+          .where('recipientId', isEqualTo: recipientId)
+          .get();
+          
+      if (existingRequestQuery.docs.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('You already sent a request to this user')),
+        );
+        return;
+      }
+      
+      // Create friend request
+      await FirebaseFirestore.instance.collection('friendRequests').add({
+        'senderId': currentUser.uid,
+        'senderName': currentUserName,
+        'senderProfileUrl': currentUserData['profileImageUrl'],
+        'recipientId': recipientId,
+        'recipientName': recipientName,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        'message': 'I would like to connect with you.',
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Request sent to $recipientName')),
+      );
+    } catch (e) {
+      developer.log('Error sending friend request: $e', name: 'ChatRoom');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send request')),
+      );
+    }
   }
 } 

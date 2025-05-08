@@ -17,6 +17,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final AuthService _authService = AuthService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String? _profileImageUrl;
+  int _selectedIndex = 0;
 
   // Define the exact orange color
   final Color orangeColor = Color(0xFFf06517);
@@ -149,61 +150,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
-            ListTile(
-              leading: Icon(Icons.home),
-              title: Text('Home'),
+            _buildDrawerItem(
+              icon: Icons.home_outlined,
+              title: 'Home',
               onTap: () {
                 Navigator.pop(context);
+                setState(() {
+                  _selectedIndex = 0;
+                });
               },
             ),
-            ListTile(
-              leading: Icon(Icons.people),
-              title: Text('Friend Requests'),
-              trailing: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('friendRequests')
-                    .where('recipientId', isEqualTo: _authService.currentUser?.uid)
-                    .where('status', isEqualTo: 'pending')
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.hasData && snapshot.data != null && snapshot.data!.docs.isNotEmpty) {
-                    int requestCount = snapshot.data!.docs.length;
-                    return Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      constraints: BoxConstraints(
-                        minWidth: 20,
-                        minHeight: 20,
-                      ),
-                      child: Text(
-                        requestCount.toString(),
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    );
-                  }
-                  return SizedBox.shrink();
-                },
-              ),
+            _buildDrawerItem(
+              icon: Icons.people_outline,
+              title: 'Friends',
               onTap: () {
                 Navigator.pop(context);
-                Navigator.pushNamed(context, '/friend_requests');
+                setState(() {
+                  _selectedIndex = 1;
+                });
               },
-            ),
-            ListTile(
-              leading: Icon(Icons.group),
-              title: Text('Friends'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/friends');
-              },
+              showUnreadCount: true,
             ),
             ListTile(
               leading: Icon(Icons.file_copy),
@@ -1690,5 +1656,107 @@ class _DashboardScreenState extends State<DashboardScreen> {
         SnackBar(content: Text('Failed to send request')),
       );
     }
+  }
+
+  // Add this method to get total unread messages
+  Future<int> _getTotalUnreadMessages() async {
+    try {
+      final currentUser = _authService.currentUser;
+      if (currentUser == null) return 0;
+
+      // Get all chat rooms where user is a participant
+      final chatRooms = await FirebaseFirestore.instance
+          .collection('privateChats')
+          .where('participants', arrayContains: currentUser.uid)
+          .get();
+
+      int totalUnread = 0;
+
+      // For each chat room, count unread messages
+      for (var chatRoom in chatRooms.docs) {
+        final unreadMessages = await chatRoom.reference
+            .collection('messages')
+            .where('recipientId', isEqualTo: currentUser.uid)
+            .where('isRead', isEqualTo: false)
+            .get();
+
+        totalUnread += unreadMessages.docs.length;
+      }
+
+      return totalUnread;
+    } catch (e) {
+      developer.log('Error getting total unread messages: $e', name: 'Dashboard');
+      return 0;
+    }
+  }
+
+  // Update the drawer item builder to include unread message count
+  Widget _buildDrawerItem({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool showUnreadCount = false,
+  }) {
+    return ListTile(
+      leading: Stack(
+        children: [
+          Icon(icon, color: blueColor),
+          if (showUnreadCount)
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('privateChats')
+                  .where('participants', arrayContains: _authService.currentUser?.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return SizedBox.shrink();
+
+                int totalUnread = 0;
+                for (var chatRoom in snapshot.data!.docs) {
+                  final unreadMessages = chatRoom.reference
+                      .collection('messages')
+                      .where('recipientId', isEqualTo: _authService.currentUser?.uid)
+                      .where('isRead', isEqualTo: false)
+                      .snapshots();
+
+                  unreadMessages.listen((messages) {
+                    totalUnread += messages.docs.length;
+                  });
+                }
+
+                if (totalUnread > 0) {
+                  return Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: orangeColor,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        totalUnread.toString(),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                return SizedBox.shrink();
+              },
+            ),
+        ],
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: Colors.grey[800],
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      onTap: onTap,
+    );
   }
 }

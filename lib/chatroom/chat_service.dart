@@ -17,7 +17,7 @@ class ChatService {
         .collection(_chatRoomCollection)
         .doc(_generalChatRoomId)
         .collection(_messagesCollection)
-        .orderBy('timestamp', descending: true)
+        .orderBy('timestamp', descending: false)
         .limit(100)
         .snapshots()
         .map((snapshot) {

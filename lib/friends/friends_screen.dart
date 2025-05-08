@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:developer' as developer;
 import '../auth/auth_service.dart';
+import 'private_chat_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({Key? key}) : super(key: key);
@@ -249,6 +250,33 @@ class _FriendsScreenState extends State<FriendsScreen> {
     } catch (e) {
       developer.log('Error getting user profile data for $userId: $e', name: 'Friends');
       return null;
+    }
+  }
+
+  // Add this method to get unread message count
+  Future<int> _getUnreadMessageCount(String friendId) async {
+    try {
+      final currentUser = _authService.currentUser;
+      if (currentUser == null) return 0;
+
+      // Create chat room ID
+      final List<String> ids = [currentUser.uid, friendId];
+      ids.sort();
+      final chatRoomId = ids.join('_');
+
+      // Get unread messages count
+      final unreadMessages = await FirebaseFirestore.instance
+          .collection('privateChats')
+          .doc(chatRoomId)
+          .collection('messages')
+          .where('recipientId', isEqualTo: currentUser.uid)
+          .where('isRead', isEqualTo: false)
+          .get();
+
+      return unreadMessages.docs.length;
+    } catch (e) {
+      developer.log('Error getting unread message count: $e', name: 'Friends');
+      return 0;
     }
   }
 
@@ -776,6 +804,114 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // Update the friend card builder to include chat navigation and unread indicators
+  Widget _buildFriendCard(Map<String, dynamic> friend) {
+    final String friendId = friend['id'];
+    final String friendName = friend['name'] ?? 'Unknown';
+    final String? profileUrl = friend['profileUrl'];
+    final bool isOnline = friend['isOnline'] ?? false;
+    final bool isPinned = _pinnedFriends.contains(friendId);
+
+    return Card(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PrivateChatScreen(
+                friendId: friendId,
+                friendName: friendName,
+                friendProfileUrl: profileUrl,
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Stack(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundImage: profileUrl != null
+                        ? NetworkImage(profileUrl)
+                        : null,
+                    child: profileUrl == null
+                        ? Icon(Icons.person, size: 30, color: Colors.grey)
+                        : null,
+                  ),
+                  if (isOnline)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      friendName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      isOnline ? 'Online' : 'Offline',
+                      style: TextStyle(
+                        color: isOnline ? Colors.green : Colors.grey,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                      color: isPinned ? orangeColor : Colors.grey,
+                    ),
+                    onPressed: () => _togglePinFriend(friendId, friendName),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () => _deleteFriend(friendId, friendName),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
