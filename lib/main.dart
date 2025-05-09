@@ -14,19 +14,18 @@ import 'upload/upload_screen.dart';
 import 'profile/profile_screen.dart';
 import 'friend_requests/friend_requests_screen.dart';
 import 'friends/friends_screen.dart';
+import 'chatbot/chatbot_screen.dart';
 // DocumentsScreen will be implemented later
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
   // Initialize EnvConfig to load Cloudinary credentials
   await EnvConfig.initialize();
-  
+
   runApp(const MyApp());
 }
 
@@ -54,6 +53,7 @@ class MyApp extends StatelessWidget {
         '/profile': (context) => ProfileScreen(),
         '/friend_requests': (context) => FriendRequestsScreen(),
         '/friends': (context) => FriendsScreen(),
+        '/chatbot': (context) => ChatbotScreen(),
         // Documents screen will be implemented later
       },
     );
@@ -84,8 +84,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           Navigator.of(context).pushReplacementNamed('/home');
         }
       } else {
-    // Navigate to IntroductionScreen after 3 seconds
-    Future.delayed(const Duration(seconds: 3), () {
+        // Navigate to IntroductionScreen after 3 seconds
+        Future.delayed(const Duration(seconds: 3), () {
           if (mounted) {
             Navigator.of(context).pushReplacementNamed('/intro');
           }

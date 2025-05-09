@@ -54,3 +54,4 @@ flutter:
     - assets/pdf.png
     - assets/doc.png
     - assets/ppt.png
+    - assets/chatbot_data.json

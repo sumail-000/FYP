@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../upload/upload_screen.dart';
 import '../profile/profile_screen.dart';
+import '../chatbot/chatbot_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class DashboardService {
@@ -17,6 +18,14 @@ class DashboardService {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ProfileScreen()),
+    );
+  }
+
+  // Navigate to the chatbot screen
+  static void navigateToChatbotScreen(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ChatbotScreen()),
     );
   }
 

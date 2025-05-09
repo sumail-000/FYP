@@ -44,36 +44,59 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Future<void> _loadPinnedFriends() async {
     try {
       if (_authService.currentUser == null) {
-        developer.log('No current user, cannot load pinned friends', name: 'Friends');
+        developer.log(
+          'No current user, cannot load pinned friends',
+          name: 'Friends',
+        );
         return;
       }
 
-      developer.log('Loading pinned friends for user ${_authService.currentUser!.uid}', name: 'Friends');
-      
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(_authService.currentUser!.uid)
-          .get();
+      developer.log(
+        'Loading pinned friends for user ${_authService.currentUser!.uid}',
+        name: 'Friends',
+      );
+
+      final userDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(_authService.currentUser!.uid)
+              .get();
 
       if (userDoc.exists) {
         final userData = userDoc.data() as Map<String, dynamic>;
-        developer.log('User document found: ${userData.keys.join(', ')}', name: 'Friends');
-        
-        if (userData.containsKey('pinnedFriends') && userData['pinnedFriends'] is List) {
+        developer.log(
+          'User document found: ${userData.keys.join(', ')}',
+          name: 'Friends',
+        );
+
+        if (userData.containsKey('pinnedFriends') &&
+            userData['pinnedFriends'] is List) {
           setState(() {
             _pinnedFriends = List<String>.from(userData['pinnedFriends']);
           });
-          developer.log('Loaded ${_pinnedFriends.length} pinned friends', name: 'Friends');
+          developer.log(
+            'Loaded ${_pinnedFriends.length} pinned friends',
+            name: 'Friends',
+          );
         } else {
-          developer.log('No pinnedFriends field found in user document', name: 'Friends');
+          developer.log(
+            'No pinnedFriends field found in user document',
+            name: 'Friends',
+          );
         }
-        
+
         // Debug: Check if friends field exists
         if (userData.containsKey('friends')) {
           final friendsList = userData['friends'] as List<dynamic>? ?? [];
-          developer.log('User has ${friendsList.length} friends in total', name: 'Friends');
+          developer.log(
+            'User has ${friendsList.length} friends in total',
+            name: 'Friends',
+          );
         } else {
-          developer.log('No friends field found in user document', name: 'Friends');
+          developer.log(
+            'No friends field found in user document',
+            name: 'Friends',
+          );
         }
       } else {
         developer.log('User document not found', name: 'Friends');
@@ -87,22 +110,20 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Future<void> _togglePinFriend(String friendId, String friendName) async {
     try {
       if (_authService.currentUser == null) return;
-      
+
       setState(() => _isLoading = true);
-      
+
       final isPinned = _pinnedFriends.contains(friendId);
-      
+
       if (isPinned) {
         // Unpin friend
         _pinnedFriends.remove(friendId);
-        
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(_authService.currentUser!.uid)
-            .update({
-          'pinnedFriends': _pinnedFriends,
-        });
-        
+            .update({'pinnedFriends': _pinnedFriends});
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$friendName unpinned'),
@@ -121,17 +142,15 @@ class _FriendsScreenState extends State<FriendsScreen> {
           );
           return;
         }
-        
+
         // Pin friend
         _pinnedFriends.add(friendId);
-        
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(_authService.currentUser!.uid)
-            .update({
-          'pinnedFriends': _pinnedFriends,
-        });
-        
+            .update({'pinnedFriends': _pinnedFriends});
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$friendName pinned'),
@@ -139,7 +158,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           ),
         );
       }
-      
+
       setState(() {
         // Already updated _pinnedFriends
         _isLoading = false;
@@ -156,48 +175,45 @@ class _FriendsScreenState extends State<FriendsScreen> {
       setState(() => _isLoading = false);
     }
   }
-  
+
   // Delete friend
   Future<void> _deleteFriend(String friendId, String friendName) async {
     try {
       if (_authService.currentUser == null) return;
-      
+
       setState(() => _isLoading = true);
-      
+
       // 1. Update current user's friends list
       await FirebaseFirestore.instance
           .collection('users')
           .doc(_authService.currentUser!.uid)
           .update({
-        'friends': FieldValue.arrayRemove([friendId]),
-      });
-      
+            'friends': FieldValue.arrayRemove([friendId]),
+          });
+
       // 2. Update friend's friends list (removing current user)
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(friendId)
-          .update({
-        'friends': FieldValue.arrayRemove([_authService.currentUser!.uid]),
-      });
-      
+      await FirebaseFirestore.instance.collection('users').doc(friendId).update(
+        {
+          'friends': FieldValue.arrayRemove([_authService.currentUser!.uid]),
+        },
+      );
+
       // 3. If pinned, remove from pinned list
       if (_pinnedFriends.contains(friendId)) {
         _pinnedFriends.remove(friendId);
         await FirebaseFirestore.instance
             .collection('users')
             .doc(_authService.currentUser!.uid)
-            .update({
-          'pinnedFriends': _pinnedFriends,
-        });
+            .update({'pinnedFriends': _pinnedFriends});
       }
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$friendName removed from friends'),
           behavior: SnackBarBehavior.floating,
         ),
       );
-      
+
       setState(() => _isLoading = false);
     } catch (e) {
       developer.log('Error deleting friend: $e', name: 'Friends');
@@ -216,39 +232,56 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Future<Map<String, dynamic>?> _getUserProfileData(String userId) async {
     try {
       if (userId.isEmpty) {
-        developer.log('Empty user ID provided to _getUserProfileData', name: 'Friends');
+        developer.log(
+          'Empty user ID provided to _getUserProfileData',
+          name: 'Friends',
+        );
         return null;
       }
-      
+
       developer.log('Getting profile data for user $userId', name: 'Friends');
-      
+
       // First check profiles collection
-      final profileDoc = await FirebaseFirestore.instance
-          .collection('profiles')
-          .doc(userId)
-          .get();
-          
+      final profileDoc =
+          await FirebaseFirestore.instance
+              .collection('profiles')
+              .doc(userId)
+              .get();
+
       if (profileDoc.exists) {
-        developer.log('Found profile in profiles collection for $userId', name: 'Friends');
+        developer.log(
+          'Found profile in profiles collection for $userId',
+          name: 'Friends',
+        );
         return profileDoc.data();
       }
-      
+
       // Fall back to users collection
-      developer.log('Profile not found in profiles collection, checking users collection for $userId', name: 'Friends');
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .get();
-          
+      developer.log(
+        'Profile not found in profiles collection, checking users collection for $userId',
+        name: 'Friends',
+      );
+      final userDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .get();
+
       if (userDoc.exists) {
-        developer.log('Found profile in users collection for $userId', name: 'Friends');
+        developer.log(
+          'Found profile in users collection for $userId',
+          name: 'Friends',
+        );
         return userDoc.data();
       }
-      
+
       developer.log('No profile data found for user $userId', name: 'Friends');
       return null;
     } catch (e) {
-      developer.log('Error getting user profile data for $userId: $e', name: 'Friends');
+      developer.log(
+        'Error getting user profile data for $userId: $e',
+        name: 'Friends',
+      );
       return null;
     }
   }
@@ -265,13 +298,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
       final chatRoomId = ids.join('_');
 
       // Get unread messages count
-      final unreadMessages = await FirebaseFirestore.instance
-          .collection('privateChats')
-          .doc(chatRoomId)
-          .collection('messages')
-          .where('recipientId', isEqualTo: currentUser.uid)
-          .where('isRead', isEqualTo: false)
-          .get();
+      final unreadMessages =
+          await FirebaseFirestore.instance
+              .collection('privateChats')
+              .doc(chatRoomId)
+              .collection('messages')
+              .where('recipientId', isEqualTo: currentUser.uid)
+              .where('isRead', isEqualTo: false)
+              .get();
 
       return unreadMessages.docs.length;
     } catch (e) {
@@ -286,10 +320,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       appBar: AppBar(
         title: Text(
           'Friends',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         backgroundColor: blueColor,
         elevation: 0,
@@ -321,119 +352,149 @@ class _FriendsScreenState extends State<FriendsScreen> {
               decoration: InputDecoration(
                 hintText: 'Search friends',
                 prefixIcon: Icon(Icons.search, color: blueColor),
-                suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: Icon(Icons.clear, color: Colors.grey),
-                      onPressed: () {
-                        _searchController.clear();
-                      },
-                    )
-                  : null,
+                suffixIcon:
+                    _searchController.text.isNotEmpty
+                        ? IconButton(
+                          icon: Icon(Icons.clear, color: Colors.grey),
+                          onPressed: () {
+                            _searchController.clear();
+                          },
+                        )
+                        : null,
                 border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                contentPadding: EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 16,
+                ),
               ),
             ),
           ),
-          
+
           // Friends list
-          Expanded(
-            child: _buildFriendsList(),
-          ),
+          Expanded(child: _buildFriendsList()),
         ],
       ),
     );
   }
-  
+
   Widget _buildFriendsList() {
     if (_authService.currentUser == null) {
       developer.log('No current user, showing sign in prompt', name: 'Friends');
       return _buildSignInPrompt();
     }
-    
-    developer.log('Building friends list for user ${_authService.currentUser!.uid}', name: 'Friends');
-    
+
+    developer.log(
+      'Building friends list for user ${_authService.currentUser!.uid}',
+      name: 'Friends',
+    );
+
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('users')
-          .doc(_authService.currentUser!.uid)
-          .snapshots(),
+      stream:
+          FirebaseFirestore.instance
+              .collection('users')
+              .doc(_authService.currentUser!.uid)
+              .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           developer.log('Waiting for user document snapshot', name: 'Friends');
           return Center(child: CircularProgressIndicator());
         }
-        
+
         if (snapshot.hasError) {
           final error = snapshot.error;
           developer.log('Error loading friends: $error', name: 'Friends');
-          return Center(
-            child: Text('Error loading friends: ${error}'),
-          );
+          return Center(child: Text('Error loading friends: ${error}'));
         }
-        
+
         if (!snapshot.hasData || !snapshot.data!.exists) {
           developer.log('User document does not exist', name: 'Friends');
-          return _buildEmptyState('No user data found', 'Please try again later');
+          return _buildEmptyState(
+            'No user data found',
+            'Please try again later',
+          );
         }
-        
+
         final userData = snapshot.data!.data() as Map<String, dynamic>;
-        
+
         // Check if the friends field exists
         if (!userData.containsKey('friends')) {
-          developer.log('User document does not have a friends field', name: 'Friends');
-          
+          developer.log(
+            'User document does not have a friends field',
+            name: 'Friends',
+          );
+
           // Initialize friends field if it doesn't exist
           FirebaseFirestore.instance
               .collection('users')
               .doc(_authService.currentUser!.uid)
               .set({'friends': []}, SetOptions(merge: true))
-              .then((_) => developer.log('Initialized empty friends list', name: 'Friends'))
-              .catchError((e) => developer.log('Error initializing friends list: $e', name: 'Friends'));
-              
+              .then(
+                (_) => developer.log(
+                  'Initialized empty friends list',
+                  name: 'Friends',
+                ),
+              )
+              .catchError(
+                (e) => developer.log(
+                  'Error initializing friends list: $e',
+                  name: 'Friends',
+                ),
+              );
+
           return _buildEmptyState(
             'No friends yet',
-            'Connect with others to add friends'
+            'Connect with others to add friends',
           );
         }
-        
+
         // Get friends list
         final friendsList = userData['friends'];
-        
+
         // Check if friends list is null or empty
-        if (friendsList == null || !(friendsList is List) || friendsList.isEmpty) {
-          developer.log('Friends list is empty or not a list: ${friendsList.runtimeType}', name: 'Friends');
+        if (friendsList == null ||
+            !(friendsList is List) ||
+            friendsList.isEmpty) {
+          developer.log(
+            'Friends list is empty or not a list: ${friendsList.runtimeType}',
+            name: 'Friends',
+          );
           return _buildEmptyState(
             'No friends yet',
-            'Connect with others to add friends'
+            'Connect with others to add friends',
           );
         }
-        
+
         // Convert to List<String>
-        final friends = friendsList.map<String>((item) => item.toString()).toList();
-        developer.log('Found ${friends.length} friends: ${friends.join(", ")}', name: 'Friends');
-        
+        final friends =
+            friendsList.map<String>((item) => item.toString()).toList();
+        developer.log(
+          'Found ${friends.length} friends: ${friends.join(", ")}',
+          name: 'Friends',
+        );
+
         // Filter based on search
-        final List<String> filteredFriends = _searchQuery.isEmpty
-            ? friends
-            : []; // Will populate via user profile lookups
-        
+        final List<String> filteredFriends =
+            _searchQuery.isEmpty
+                ? friends
+                : []; // Will populate via user profile lookups
+
         // Create a combined list with pinned friends first
         List<String> sortedFriends = [];
-        
+
         // First add pinned friends
         for (final friendId in friends) {
           if (_pinnedFriends.contains(friendId)) {
             sortedFriends.add(friendId);
           }
         }
-        
+
         // Then add non-pinned friends
         for (final friendId in friends) {
           if (!_pinnedFriends.contains(friendId)) {
             sortedFriends.add(friendId);
           }
         }
-        
+
         if (_searchQuery.isEmpty) {
           // Show all friends in sorted order
           return ListView.builder(
@@ -442,7 +503,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             itemBuilder: (context, index) {
               final friendId = sortedFriends[index];
               final isPinned = _pinnedFriends.contains(friendId);
-              
+
               return _buildFriendItem(friendId, isPinned);
             },
           );
@@ -457,38 +518,40 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   userData['userId'] = friendId;
                 }
                 return userData ?? {};
-              })
+              }),
             ),
             builder: (context, userDataSnapshot) {
               if (!userDataSnapshot.hasData) {
                 return Center(child: CircularProgressIndicator());
               }
-              
+
               // Filter friends based on search query
-              final filteredUserData = userDataSnapshot.data!.where((userData) {
-                if (userData.isEmpty) return false;
-                
-                final userName = ((userData['name'] ?? '') as String).toLowerCase();
-                return userName.contains(_searchQuery);
-              }).toList();
-              
+              final filteredUserData =
+                  userDataSnapshot.data!.where((userData) {
+                    if (userData.isEmpty) return false;
+
+                    final userName =
+                        ((userData['name'] ?? '') as String).toLowerCase();
+                    return userName.contains(_searchQuery);
+                  }).toList();
+
               if (filteredUserData.isEmpty) {
                 return _buildEmptyState(
                   'No matching friends',
-                  'No friends match your search for "$_searchQuery"'
+                  'No friends match your search for "$_searchQuery"',
                 );
               }
-              
+
               // Sort with pinned friends first
               filteredUserData.sort((a, b) {
                 final aIsPinned = _pinnedFriends.contains(a['userId']);
                 final bIsPinned = _pinnedFriends.contains(b['userId']);
-                
+
                 if (aIsPinned && !bIsPinned) return -1;
                 if (!aIsPinned && bIsPinned) return 1;
                 return 0;
               });
-              
+
               return ListView.builder(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 itemCount: filteredUserData.length,
@@ -496,8 +559,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   final friendData = filteredUserData[index];
                   final friendId = friendData['userId'] as String;
                   final isPinned = _pinnedFriends.contains(friendId);
-                  
-                  return _buildFriendItemWithData(friendId, friendData, isPinned);
+
+                  return _buildFriendItemWithData(
+                    friendId,
+                    friendData,
+                    isPinned,
+                  );
                 },
               );
             },
@@ -506,15 +573,21 @@ class _FriendsScreenState extends State<FriendsScreen> {
       },
     );
   }
-  
+
   Widget _buildFriendItem(String friendId, bool isPinned) {
-    developer.log('Building friend item for ID: $friendId, isPinned: $isPinned', name: 'Friends');
-    
+    developer.log(
+      'Building friend item for ID: $friendId, isPinned: $isPinned',
+      name: 'Friends',
+    );
+
     return FutureBuilder<Map<String, dynamic>?>(
       future: _getUserProfileData(friendId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          developer.log('Waiting for profile data for $friendId', name: 'Friends');
+          developer.log(
+            'Waiting for profile data for $friendId',
+            name: 'Friends',
+          );
           return Card(
             elevation: 1,
             margin: EdgeInsets.only(bottom: 8),
@@ -540,175 +613,198 @@ class _FriendsScreenState extends State<FriendsScreen> {
             ),
           );
         }
-        
+
         if (!snapshot.hasData || snapshot.data == null) {
           developer.log('No profile data found for $friendId', name: 'Friends');
           return SizedBox.shrink(); // Skip invalid users
         }
-        
+
         final userData = snapshot.data!;
         final userName = userData['name'] ?? 'User';
-        final profileImageUrl = userData['profileImageUrl'] ?? userData['secureUrl'];
-        
-        developer.log('Building friend item for $friendId with name: $userName', name: 'Friends');
+        final profileImageUrl =
+            userData['profileImageUrl'] ?? userData['secureUrl'];
+
+        developer.log(
+          'Building friend item for $friendId with name: $userName',
+          name: 'Friends',
+        );
         return _buildFriendItemWithData(friendId, userData, isPinned);
       },
     );
   }
-  
-  Widget _buildFriendItemWithData(String friendId, Map<String, dynamic> userData, bool isPinned) {
+
+  Widget _buildFriendItemWithData(
+    String friendId,
+    Map<String, dynamic> userData,
+    bool isPinned,
+  ) {
     final userName = userData['name'] ?? 'User';
-    final profileImageUrl = userData['profileImageUrl'] ?? userData['secureUrl'];
-    
+    final profileImageUrl =
+        userData['profileImageUrl'] ?? userData['secureUrl'];
+
     return Card(
       elevation: isPinned ? 2 : 1,
       margin: EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: InkWell(
+        onTap: () {
+          // Navigate to private chat when friend card is tapped
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => PrivateChatScreen(
+                    friendId: friendId,
+                    friendName: userName,
+                    friendProfileUrl: profileImageUrl,
+                  ),
+            ),
+          );
+        },
         borderRadius: BorderRadius.circular(10),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          gradient: isPinned ? LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white,
-              Colors.amber[50]!,
-            ],
-          ) : null,
-        ),
-        child: ListTile(
-          leading: Stack(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: isPinned ? Colors.amber : blueColor.withOpacity(0.3),
-                    width: isPinned ? 2 : 1.5,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            gradient:
+                isPinned
+                    ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Colors.white, Colors.amber[50]!],
+                    )
+                    : null,
+          ),
+          child: ListTile(
+            leading: Stack(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color:
+                          isPinned ? Colors.amber : blueColor.withOpacity(0.3),
+                      width: isPinned ? 2 : 1.5,
+                    ),
+                  ),
+                  child: ClipOval(
+                    child:
+                        profileImageUrl != null
+                            ? Image.network(
+                              profileImageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  Icons.person,
+                                  color: blueColor,
+                                  size: 30,
+                                );
+                              },
+                            )
+                            : Icon(Icons.person, color: blueColor, size: 30),
                   ),
                 ),
-                child: ClipOval(
-                  child: profileImageUrl != null
-                    ? Image.network(
-                        profileImageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Icon(
-                            Icons.person,
-                            color: blueColor,
-                            size: 30,
-                          );
-                        },
-                      )
-                    : Icon(
-                        Icons.person,
-                        color: blueColor,
-                        size: 30,
+                if (isPinned)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1),
                       ),
-                ),
-              ),
-              if (isPinned)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      color: Colors.amber,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1),
-                    ),
-                    child: Icon(
-                      Icons.push_pin,
-                      size: 12,
-                      color: Colors.white,
+                      child: Icon(
+                        Icons.push_pin,
+                        size: 12,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
-            ],
-          ),
-          title: Text(
-            userName,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[800],
+              ],
             ),
-          ),
-          subtitle: userData['university'] != null ? Text(
-            userData['university'],
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
+            title: Text(
+              userName,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[800],
+              ),
             ),
-          ) : null,
-          trailing: PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert, color: Colors.grey[700]),
-            onSelected: (value) {
-              if (value == 'pin') {
-                _togglePinFriend(friendId, userName);
-              } else if (value == 'delete') {
-                _showDeleteConfirmation(friendId, userName);
-              }
-            },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              PopupMenuItem<String>(
-                value: 'pin',
-                child: ListTile(
-                  leading: Icon(
-                    isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-                    color: isPinned ? Colors.grey : Colors.amber,
-                  ),
-                  title: Text(isPinned ? 'Unpin' : 'Pin'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'delete',
-                child: ListTile(
-                  leading: Icon(Icons.delete_outline, color: Colors.red),
-                  title: Text('Remove friend'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-              ),
-            ],
+            subtitle:
+                userData['university'] != null
+                    ? Text(
+                      userData['university'],
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    )
+                    : null,
+            trailing: PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert, color: Colors.grey[700]),
+              onSelected: (value) {
+                if (value == 'pin') {
+                  _togglePinFriend(friendId, userName);
+                } else if (value == 'delete') {
+                  _showDeleteConfirmation(friendId, userName);
+                }
+              },
+              itemBuilder:
+                  (BuildContext context) => <PopupMenuEntry<String>>[
+                    PopupMenuItem<String>(
+                      value: 'pin',
+                      child: ListTile(
+                        leading: Icon(
+                          isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                          color: isPinned ? Colors.grey : Colors.amber,
+                        ),
+                        title: Text(isPinned ? 'Unpin' : 'Pin'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'delete',
+                      child: ListTile(
+                        leading: Icon(Icons.delete_outline, color: Colors.red),
+                        title: Text('Remove friend'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                  ],
+            ),
           ),
         ),
       ),
     );
   }
-  
+
   void _showDeleteConfirmation(String friendId, String friendName) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove Friend'),
-        content: Text('Are you sure you want to remove $friendName from your friends list?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('CANCEL'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _deleteFriend(friendId, friendName);
-            },
-            child: Text(
-              'REMOVE',
-              style: TextStyle(color: Colors.red),
+      builder:
+          (context) => AlertDialog(
+            title: Text('Remove Friend'),
+            content: Text(
+              'Are you sure you want to remove $friendName from your friends list?',
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('CANCEL'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _deleteFriend(friendId, friendName);
+                },
+                child: Text('REMOVE', style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
-  
+
   // Empty state widget
   Widget _buildEmptyState(String title, String message) {
     return Center(
@@ -724,11 +820,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 color: blueColor.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                Icons.people_outline,
-                size: 50,
-                color: blueColor,
-              ),
+              child: Icon(Icons.people_outline, size: 50, color: blueColor),
             ),
             SizedBox(height: 24),
             Text(
@@ -764,11 +856,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.login,
-              size: 80,
-              color: Colors.grey[400],
-            ),
+            Icon(Icons.login, size: 80, color: Colors.grey[400]),
             SizedBox(height: 16),
             Text(
               'Sign In Required',
@@ -782,10 +870,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             SizedBox(height: 8),
             Text(
               'You need to be signed in to view your friends',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[600],
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
               textAlign: TextAlign.center,
             ),
             SizedBox(height: 24),
@@ -820,19 +905,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => PrivateChatScreen(
-                friendId: friendId,
-                friendName: friendName,
-                friendProfileUrl: profileUrl,
-              ),
+              builder:
+                  (context) => PrivateChatScreen(
+                    friendId: friendId,
+                    friendName: friendName,
+                    friendProfileUrl: profileUrl,
+                  ),
             ),
           );
         },
@@ -845,12 +929,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 children: [
                   CircleAvatar(
                     radius: 30,
-                    backgroundImage: profileUrl != null
-                        ? NetworkImage(profileUrl)
-                        : null,
-                    child: profileUrl == null
-                        ? Icon(Icons.person, size: 30, color: Colors.grey)
-                        : null,
+                    backgroundImage:
+                        profileUrl != null ? NetworkImage(profileUrl) : null,
+                    child:
+                        profileUrl == null
+                            ? Icon(Icons.person, size: 30, color: Colors.grey)
+                            : null,
                   ),
                   if (isOnline)
                     Positioned(
@@ -862,10 +946,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                         decoration: BoxDecoration(
                           color: Colors.green,
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white,
-                            width: 2,
-                          ),
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
                       ),
                     ),
@@ -916,4 +997,4 @@ class _FriendsScreenState extends State<FriendsScreen> {
       ),
     );
   }
-} 
+}

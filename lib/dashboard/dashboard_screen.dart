@@ -7,14 +7,18 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../profile/profile_screen.dart';
 import '../chatroom/chatroom_screen.dart';
+import '../services/presence_service.dart';
+import '../chatbot/chatbot_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen>
+    with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
+  final PresenceService _presenceService = PresenceService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String? _profileImageUrl;
   int _selectedIndex = 0;
@@ -28,15 +32,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     developer.log('DashboardScreen initialized', name: 'Dashboard');
-    
+
     // Debug check for user university
     _getUserUniversity().then((university) {
-      developer.log('User university is: ${university ?? "NULL"}', name: 'Dashboard');
+      developer.log(
+        'User university is: ${university ?? "NULL"}',
+        name: 'Dashboard',
+      );
     });
-    
+
     // Load user profile image
     _loadUserProfileImage();
+
+    // Update user presence
+    _updatePresence(true);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _updatePresence(false);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updatePresence(true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _updatePresence(false);
+    }
+  }
+
+  // Update user presence status
+  Future<void> _updatePresence(bool isOnline) async {
+    await _presenceService.updatePresence(
+      isOnline: isOnline,
+      screen: 'dashboard',
+    );
   }
 
   Future<void> _loadUserProfileImage() async {
@@ -44,35 +80,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final user = _authService.currentUser;
       if (user != null) {
         // First check if profile exists in the profiles collection
-        final profileDoc = await FirebaseFirestore.instance
-            .collection('profiles')
-            .doc(user.uid)
-            .get();
-            
+        final profileDoc =
+            await FirebaseFirestore.instance
+                .collection('profiles')
+                .doc(user.uid)
+                .get();
+
         if (profileDoc.exists) {
           final profileData = profileDoc.data() as Map<String, dynamic>;
-          if (profileData.containsKey('secureUrl') && profileData['secureUrl'] != null) {
+          if (profileData.containsKey('secureUrl') &&
+              profileData['secureUrl'] != null) {
             setState(() {
               _profileImageUrl = profileData['secureUrl'];
             });
-            developer.log('Loaded profile image from profiles collection', name: 'Dashboard');
+            developer.log(
+              'Loaded profile image from profiles collection',
+              name: 'Dashboard',
+            );
             return; // Exit early if found in profiles collection
           }
         }
-        
+
         // Fall back to user document if not found in profiles collection
-        final userData = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-            
+        final userData =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .get();
+
         if (userData.exists) {
           final data = userData.data() as Map<String, dynamic>;
-          if (data.containsKey('profileImageUrl') && data['profileImageUrl'] != null) {
+          if (data.containsKey('profileImageUrl') &&
+              data['profileImageUrl'] != null) {
             setState(() {
               _profileImageUrl = data['profileImageUrl'];
             });
-            developer.log('Loaded profile image from users collection', name: 'Dashboard');
+            developer.log(
+              'Loaded profile image from users collection',
+              name: 'Dashboard',
+            );
           }
         }
       }
@@ -109,27 +155,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   CircleAvatar(
                     backgroundColor: Colors.white,
                     radius: 30,
-                    child: _profileImageUrl != null
-                        ? ClipOval(
-                            child: Image.network(
-                              _profileImageUrl!,
-                              fit: BoxFit.cover,
-                              width: 60,
-                              height: 60,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Icon(
-                                  Icons.person,
-                                  color: Color(0xFF2D6DA8),
-                                  size: 40,
-                                );
-                              },
+                    child:
+                        _profileImageUrl != null
+                            ? ClipOval(
+                              child: Image.network(
+                                _profileImageUrl!,
+                                fit: BoxFit.cover,
+                                width: 60,
+                                height: 60,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Icon(
+                                    Icons.person,
+                                    color: Color(0xFF2D6DA8),
+                                    size: 40,
+                                  );
+                                },
+                              ),
+                            )
+                            : Icon(
+                              Icons.person,
+                              color: Color(0xFF2D6DA8),
+                              size: 40,
                             ),
-                          )
-                        : Icon(
-                            Icons.person,
-                            color: Color(0xFF2D6DA8),
-                            size: 40,
-                          ),
                   ),
                   SizedBox(height: height * 0.01),
                   Text(
@@ -165,9 +212,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               title: 'Friends',
               onTap: () {
                 Navigator.pop(context);
-                setState(() {
-                  _selectedIndex = 1;
-                });
+                Navigator.pushNamed(context, '/friends');
+              },
+              showUnreadCount: true,
+            ),
+            // Add Friend Requests option
+            _buildDrawerItem(
+              icon: Icons.person_add_alt_1,
+              title: 'Friend Requests',
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/friend_requests');
               },
               showUnreadCount: true,
             ),
@@ -275,38 +330,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               padding: EdgeInsets.all(width * 0.02),
                               width: width * 0.1,
                               height: width * 0.1,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: width * 0.07,
-                                  height: 3,
-                                  margin: EdgeInsets.only(bottom: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(10),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: width * 0.07,
+                                    height: 3,
+                                    margin: EdgeInsets.only(bottom: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
-                                ),
-                                Container(
-                                  width: width * 0.05,
-                                  height: 3,
-                                  margin: EdgeInsets.only(bottom: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(10),
+                                  Container(
+                                    width: width * 0.05,
+                                    height: 3,
+                                    margin: EdgeInsets.only(bottom: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
-                                ),
-                                Container(
-                                  width: width * 0.07,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(10),
+                                  Container(
+                                    width: width * 0.07,
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
                               ),
                             ),
                           ),
@@ -341,30 +396,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                               ],
                             ),
-                            child: _profileImageUrl != null
-                                ? ClipOval(
-                                    child: Image.network(
-                                      _profileImageUrl!,
-                                      fit: BoxFit.cover,
-                                      width: width * 0.1,
-                                      height: width * 0.1,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        developer.log('Error loading profile image: $error', name: 'Dashboard');
-                                        return Icon(
-                                          Icons.person,
-                                          color: Color(0xFF2D6DA8),
-                                          size: width * 0.06,
-                                        );
-                                      },
+                            child:
+                                _profileImageUrl != null
+                                    ? ClipOval(
+                                      child: Image.network(
+                                        _profileImageUrl!,
+                                        fit: BoxFit.cover,
+                                        width: width * 0.1,
+                                        height: width * 0.1,
+                                        errorBuilder: (
+                                          context,
+                                          error,
+                                          stackTrace,
+                                        ) {
+                                          developer.log(
+                                            'Error loading profile image: $error',
+                                            name: 'Dashboard',
+                                          );
+                                          return Icon(
+                                            Icons.person,
+                                            color: Color(0xFF2D6DA8),
+                                            size: width * 0.06,
+                                          );
+                                        },
+                                      ),
+                                    )
+                                    : Center(
+                                      child: Icon(
+                                        Icons.person,
+                                        color: Color(0xFF2D6DA8),
+                                        size: width * 0.06,
+                                      ),
                                     ),
-                                  )
-                                : Center(
-                                    child: Icon(
-                                      Icons.person,
-                                      color: Color(0xFF2D6DA8),
-                                      size: width * 0.06,
-                                    ),
-                                  ),
                           ),
                         ),
                       ),
@@ -451,8 +514,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         title: "Friends",
                         icon: Icons.people,
                         color: orangeColor,
-                        onTap:
-                            () => Navigator.pushNamed(context, '/friends'),
+                        onTap: () => Navigator.pushNamed(context, '/friends'),
                         width: width,
                         height: height,
                       ),
@@ -461,9 +523,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         icon: Icons.smart_toy,
                         color: orangeColor,
                         onTap:
-                            () => DashboardService.showFeatureNotAvailable(
+                            () => DashboardService.navigateToChatbotScreen(
                               context,
-                              "Bot",
                             ),
                         width: width,
                         height: height,
@@ -483,9 +544,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         title: "ChatRoom",
                         icon: Icons.chat_bubble,
                         color: orangeColor,
-                        onTap: () => Navigator.push(
+                        onTap:
+                            () => Navigator.push(
                               context,
-                          MaterialPageRoute(builder: (context) => ChatRoomScreen()),
+                              MaterialPageRoute(
+                                builder: (context) => ChatRoomScreen(),
+                              ),
                             ),
                         width: width,
                         height: height,
@@ -690,26 +754,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       // First, get the current user's university
       String? userUniversity = await _getUserUniversity();
-      
+
       if (userUniversity == null) {
         developer.log('User university not found', name: 'Dashboard');
         return [];
       }
-      
-      developer.log('Filtering documents for university: $userUniversity', name: 'Dashboard');
-      
+
+      developer.log(
+        'Filtering documents for university: $userUniversity',
+        name: 'Dashboard',
+      );
+
       // Get reference to Firestore collection
       final documentsRef = FirebaseFirestore.instance.collection('documents');
 
       // Query for documents from the user's university, ordered by upload timestamp (most recent first)
-      final snapshot = await documentsRef
-          .where('university', isEqualTo: userUniversity)
-          .orderBy('uploadedAt', descending: true)
-          .limit(10) // Limit to 10 documents
-          .get();
+      final snapshot =
+          await documentsRef
+              .where('university', isEqualTo: userUniversity)
+              .orderBy('uploadedAt', descending: true)
+              .limit(10) // Limit to 10 documents
+              .get();
 
       if (snapshot.docs.isEmpty) {
-        developer.log('No documents found for university: $userUniversity', name: 'Dashboard');
+        developer.log(
+          'No documents found for university: $userUniversity',
+          name: 'Dashboard',
+        );
         return [];
       }
 
@@ -718,7 +789,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       for (var doc in snapshot.docs) {
         final data = doc.data();
-        
+
         developer.log('Processing document: ${doc.id}', name: 'Dashboard');
 
         // Extract file extension from fileName or format
@@ -783,24 +854,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return [];
     }
   }
-  
+
   // Helper method to get current user's university
   Future<String?> _getUserUniversity() async {
     try {
       if (_authService.currentUser == null) {
         return null;
       }
-      
+
       // Get the user document
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(_authService.currentUser!.uid)
-          .get();
-      
+      final userDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(_authService.currentUser!.uid)
+              .get();
+
       if (!userDoc.exists) {
         return null;
       }
-      
+
       final userData = userDoc.data() as Map<String, dynamic>;
       return userData['university'] as String?;
     } catch (e) {
@@ -1092,7 +1164,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            
+
             // Time and download
             Padding(
               padding: EdgeInsets.all(8),
@@ -1182,345 +1254,407 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     // Determine document color based on file extension
-    Color documentColor = extension == 'pdf'
-        ? Color(0xFFE94235) // Red for PDF
-        : extension == 'doc' || extension == 'docx'
+    Color documentColor =
+        extension == 'pdf'
+            ? Color(0xFFE94235) // Red for PDF
+            : extension == 'doc' || extension == 'docx'
             ? Color(0xFF2A5699) // Blue for Word
             : extension == 'ppt' || extension == 'pptx'
-                ? Color(0xFFD24726) // Orange for PowerPoint
-                : Colors.grey; // Grey for other types
+            ? Color(0xFFD24726) // Orange for PowerPoint
+            : Colors.grey; // Grey for other types
 
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        elevation: 5,
-        child: Container(
-          width: double.maxFinite,
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header with document type color
-              Container(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: documentColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(15),
-                    topRight: Radius.circular(15),
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    'Document Details',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            elevation: 5,
+            child: Container(
+              width: double.maxFinite,
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.7,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header with document type color
+                  Container(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: documentColor,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(15),
+                        topRight: Radius.circular(15),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'Document Details',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-              
-              // Document details section
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Document icon and file name
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
+
+                  // Document details section
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Document icon
-                            Container(
-                              width: 42,
-                              height: 42,
-                              decoration: BoxDecoration(
-                                color: documentColor.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Center(
-                                child: Icon(
-                                  extension == 'pdf'
-                                      ? Icons.picture_as_pdf
-                                      : extension == 'doc' || extension == 'docx'
+                            // Document icon and file name
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                // Document icon
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: documentColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Center(
+                                    child: Icon(
+                                      extension == 'pdf'
+                                          ? Icons.picture_as_pdf
+                                          : extension == 'doc' ||
+                                              extension == 'docx'
                                           ? Icons.description
-                                          : extension == 'ppt' || extension == 'pptx'
-                                              ? Icons.slideshow
-                                              : Icons.insert_drive_file,
-                                  color: documentColor,
-                                  size: 24,
+                                          : extension == 'ppt' ||
+                                              extension == 'pptx'
+                                          ? Icons.slideshow
+                                          : Icons.insert_drive_file,
+                                      color: documentColor,
+                                      size: 24,
+                                    ),
+                                  ),
                                 ),
+                                SizedBox(width: 12),
+                                // File name
+                                Expanded(
+                                  child: Text(
+                                    fileName,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 16),
+
+                            // File details as a card
+                            Container(
+                              padding: EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.grey.withOpacity(0.05),
+                                    blurRadius: 5,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: Colors.grey.withOpacity(0.2),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildDetailRowStyled(
+                                    'Type',
+                                    extension.toUpperCase(),
+                                    Icons.description,
+                                  ),
+                                  _buildDetailRowStyled(
+                                    'Size',
+                                    fileSize,
+                                    Icons.data_usage,
+                                  ),
+                                  if (course.isNotEmpty)
+                                    _buildDetailRowStyled(
+                                      'Course',
+                                      course,
+                                      Icons.book,
+                                    ),
+                                  if (courseCode.isNotEmpty)
+                                    _buildDetailRowStyled(
+                                      'Code',
+                                      courseCode,
+                                      Icons.code,
+                                    ),
+                                  if (department.isNotEmpty)
+                                    _buildDetailRowStyled(
+                                      'Department',
+                                      department,
+                                      Icons.domain,
+                                    ),
+                                  if (documentType.isNotEmpty)
+                                    _buildDetailRowStyled(
+                                      'Type',
+                                      documentType,
+                                      Icons.category,
+                                    ),
+                                  _buildDetailRowStyled(
+                                    'Uploaded',
+                                    timeAgo,
+                                    Icons.access_time,
+                                  ),
+                                ],
                               ),
                             ),
-                            SizedBox(width: 12),
-                            // File name
-                            Expanded(
-                              child: Text(
-                                fileName,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
+
+                            SizedBox(height: 20),
+
+                            // Uploader section
+                            Text(
+                              'Uploaded by',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                color: blueColor,
+                              ),
+                            ),
+                            SizedBox(height: 10),
+
+                            // Uploader card with profile
+                            Container(
+                              padding: EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.05),
+                                    blurRadius: 5,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: blueColor.withOpacity(0.2),
+                                  width: 1,
                                 ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
+                              ),
+                              child: FutureBuilder<Map<String, dynamic>?>(
+                                future: _getUserProfileData(uploaderId),
+                                builder: (context, snapshot) {
+                                  // Get profile picture URL if available
+                                  final profileImageUrl =
+                                      snapshot.data?['profileImageUrl'] ??
+                                      snapshot.data?['secureUrl'];
+
+                                  return Row(
+                                    children: [
+                                      // Profile image
+                                      Container(
+                                        width: 45,
+                                        height: 45,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: blueColor.withOpacity(0.1),
+                                          border: Border.all(
+                                            color: blueColor.withOpacity(0.3),
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                        child:
+                                            profileImageUrl != null
+                                                ? ClipOval(
+                                                  child: Image.network(
+                                                    profileImageUrl,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return Icon(
+                                                        Icons.person,
+                                                        color: blueColor
+                                                            .withOpacity(0.7),
+                                                        size: 25,
+                                                      );
+                                                    },
+                                                  ),
+                                                )
+                                                : Icon(
+                                                  Icons.person,
+                                                  color: blueColor.withOpacity(
+                                                    0.7,
+                                                  ),
+                                                  size: 25,
+                                                ),
+                                      ),
+                                      SizedBox(width: 12),
+
+                                      // Uploader info
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              uploaderName,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                            SizedBox(height: 2),
+
+                                            // Show university or role if available
+                                            if (snapshot.data != null &&
+                                                (snapshot.data!['university'] !=
+                                                        null ||
+                                                    snapshot.data!['role'] !=
+                                                        null))
+                                              Text(
+                                                '${snapshot.data!['role'] ?? ''} ${snapshot.data!['role'] != null && snapshot.data!['university'] != null ? '• ' : ''}${snapshot.data!['university'] ?? ''}',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              )
+                                            else
+                                              Text(
+                                                'Uploaded $timeAgo',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+
+                                      // Connect button (only for documents not uploaded by current user)
+                                      if (!isCurrentUserDocument)
+                                        Container(
+                                          margin: EdgeInsets.only(left: 8),
+                                          child: ElevatedButton.icon(
+                                            onPressed: () {
+                                              Navigator.pop(context);
+                                              _sendFriendRequest(
+                                                uploaderId,
+                                                uploaderName,
+                                              );
+                                            },
+                                            icon: Icon(
+                                              Icons.person_add,
+                                              size: 16,
+                                            ),
+                                            label: Text(
+                                              'Connect',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: blueColor,
+                                              foregroundColor: Colors.white,
+                                              padding: EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 8,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
                               ),
                             ),
                           ],
                         ),
-                        SizedBox(height: 16),
-                        
-                        // File details as a card
-                        Container(
-                          padding: EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.grey.withOpacity(0.05),
-                                blurRadius: 5,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                            border: Border.all(
-                              color: Colors.grey.withOpacity(0.2),
-                              width: 1,
+                      ),
+                    ),
+                  ),
+
+                  // Action buttons
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(15),
+                        bottomRight: Radius.circular(15),
+                      ),
+                      border: Border(
+                        top: BorderSide(
+                          color: Colors.grey.withOpacity(0.2),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Close button
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: Text(
+                            'Close',
+                            style: TextStyle(
+                              color: Colors.grey[700],
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildDetailRowStyled('Type', extension.toUpperCase(), Icons.description),
-                              _buildDetailRowStyled('Size', fileSize, Icons.data_usage),
-                              if (course.isNotEmpty) _buildDetailRowStyled('Course', course, Icons.book),
-                              if (courseCode.isNotEmpty) _buildDetailRowStyled('Code', courseCode, Icons.code),
-                              if (department.isNotEmpty) _buildDetailRowStyled('Department', department, Icons.domain),
-                              if (documentType.isNotEmpty) _buildDetailRowStyled('Type', documentType, Icons.category),
-                              _buildDetailRowStyled('Uploaded', timeAgo, Icons.access_time),
-                            ],
-                          ),
-                        ),
-                        
-                        SizedBox(height: 20),
-                        
-                        // Uploader section
-                        Text(
-                          'Uploaded by',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                            color: blueColor,
-                          ),
-                        ),
-                        SizedBox(height: 10),
-                        
-                        // Uploader card with profile
-                        Container(
-                          padding: EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 5,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                            border: Border.all(
-                              color: blueColor.withOpacity(0.2),
-                              width: 1,
+                          style: TextButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
                             ),
                           ),
-                          child: FutureBuilder<Map<String, dynamic>?>(
-                            future: _getUserProfileData(uploaderId),
-                            builder: (context, snapshot) {
-                              // Get profile picture URL if available
-                              final profileImageUrl = snapshot.data?['profileImageUrl'] ?? 
-                                                      snapshot.data?['secureUrl'];
-                              
-                              return Row(
-                                children: [
-                                  // Profile image
-                                  Container(
-                                    width: 45,
-                                    height: 45,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: blueColor.withOpacity(0.1),
-                                      border: Border.all(
-                                        color: blueColor.withOpacity(0.3),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: profileImageUrl != null
-                                        ? ClipOval(
-                                            child: Image.network(
-                                              profileImageUrl,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (context, error, stackTrace) {
-                                                return Icon(
-                                                  Icons.person,
-                                                  color: blueColor.withOpacity(0.7),
-                                                  size: 25,
-                                                );
-                                              },
-                                            ),
-                                          )
-                                        : Icon(
-                                            Icons.person,
-                                            color: blueColor.withOpacity(0.7),
-                                            size: 25,
-                                          ),
-                                  ),
-                                  SizedBox(width: 12),
-                                  
-                                  // Uploader info
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          uploaderName,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                        SizedBox(height: 2),
-                                        
-                                        // Show university or role if available
-                                        if (snapshot.data != null && 
-                                            (snapshot.data!['university'] != null || snapshot.data!['role'] != null))
-                                          Text(
-                                            '${snapshot.data!['role'] ?? ''} ${snapshot.data!['role'] != null && snapshot.data!['university'] != null ? '• ' : ''}${snapshot.data!['university'] ?? ''}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[600],
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          )
-                                        else
-                                          Text(
-                                            'Uploaded $timeAgo',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  
-                                  // Connect button (only for documents not uploaded by current user)
-                                  if (!isCurrentUserDocument)
-                                    Container(
-                                      margin: EdgeInsets.only(left: 8),
-                                      child: ElevatedButton.icon(
-                                        onPressed: () {
-                                          Navigator.pop(context);
-                                          _sendFriendRequest(uploaderId, uploaderName);
-                                        },
-                                        icon: Icon(
-                                          Icons.person_add,
-                                          size: 16,
-                                        ),
-                                        label: Text(
-                                          'Connect',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: blueColor,
-                                          foregroundColor: Colors.white,
-                                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(20),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              );
-                            },
+                        ),
+
+                        // Download button
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            DashboardService.openDocument(
+                              context,
+                              fileUrl,
+                              fileName,
+                            );
+                          },
+                          icon: Icon(Icons.download, size: 16),
+                          label: Text('Download'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: orangeColor,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(20),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
+                ],
               ),
-              
-              // Action buttons
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(15),
-                    bottomRight: Radius.circular(15),
-                  ),
-                  border: Border(
-                    top: BorderSide(
-                      color: Colors.grey.withOpacity(0.2),
-                      width: 1,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Close button
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(
-                        'Close',
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                    
-                    // Download button
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        DashboardService.openDocument(context, fileUrl, fileName);
-                      },
-                      icon: Icon(Icons.download, size: 16),
-                      label: Text('Download'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: orangeColor,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -1537,11 +1671,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: blueColor.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              icon,
-              size: 14,
-              color: blueColor,
-            ),
+            child: Icon(icon, size: 14, color: blueColor),
           ),
           SizedBox(width: 10),
           SizedBox(
@@ -1558,51 +1688,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Expanded(
             child: Text(
               value,
-              style: TextStyle(
-                fontWeight: FontWeight.w400,
-                fontSize: 13,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w400, fontSize: 13),
             ),
           ),
         ],
       ),
     );
   }
-  
+
   // Get user profile data
   Future<Map<String, dynamic>?> _getUserProfileData(String userId) async {
     try {
       if (userId.isEmpty) return null;
-      
+
       // First check profiles collection
-      final profileDoc = await FirebaseFirestore.instance
-          .collection('profiles')
-          .doc(userId)
-          .get();
-          
+      final profileDoc =
+          await FirebaseFirestore.instance
+              .collection('profiles')
+              .doc(userId)
+              .get();
+
       if (profileDoc.exists) {
         return profileDoc.data();
       }
-      
+
       // Fall back to users collection
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .get();
-          
+      final userDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .get();
+
       if (userDoc.exists) {
         return userDoc.data();
       }
-      
+
       return null;
     } catch (e) {
       developer.log('Error getting user profile data: $e', name: 'Dashboard');
       return null;
     }
   }
-  
+
   // Send friend request
-  Future<void> _sendFriendRequest(String recipientId, String recipientName) async {
+  Future<void> _sendFriendRequest(
+    String recipientId,
+    String recipientName,
+  ) async {
     try {
       final currentUser = _authService.currentUser;
       if (currentUser == null) {
@@ -1611,30 +1743,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
         return;
       }
-      
+
       // Get current user data
-      final currentUserDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
-          
+      final currentUserDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUser.uid)
+              .get();
+
       final currentUserData = currentUserDoc.data() as Map<String, dynamic>;
-      final currentUserName = currentUserData['name'] ?? currentUser.displayName ?? 'User';
-      
+      final currentUserName =
+          currentUserData['name'] ?? currentUser.displayName ?? 'User';
+
       // Check if request already exists
-      final existingRequestQuery = await FirebaseFirestore.instance
-          .collection('friendRequests')
-          .where('senderId', isEqualTo: currentUser.uid)
-          .where('recipientId', isEqualTo: recipientId)
-          .get();
-          
+      final existingRequestQuery =
+          await FirebaseFirestore.instance
+              .collection('friendRequests')
+              .where('senderId', isEqualTo: currentUser.uid)
+              .where('recipientId', isEqualTo: recipientId)
+              .get();
+
       if (existingRequestQuery.docs.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('You already sent a request to this user')),
         );
         return;
       }
-      
+
       // Create friend request
       await FirebaseFirestore.instance.collection('friendRequests').add({
         'senderId': currentUser.uid,
@@ -1646,15 +1781,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         'createdAt': FieldValue.serverTimestamp(),
         'message': 'I would like to connect regarding your shared document.',
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Request sent to $recipientName')),
-      );
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Request sent to $recipientName')));
     } catch (e) {
       developer.log('Error sending friend request: $e', name: 'Dashboard');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to send request')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to send request')));
     }
   }
 
@@ -1665,27 +1800,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (currentUser == null) return 0;
 
       // Get all chat rooms where user is a participant
-      final chatRooms = await FirebaseFirestore.instance
-          .collection('privateChats')
-          .where('participants', arrayContains: currentUser.uid)
-          .get();
+      final chatRooms =
+          await FirebaseFirestore.instance
+              .collection('privateChats')
+              .where('participants', arrayContains: currentUser.uid)
+              .get();
 
       int totalUnread = 0;
 
       // For each chat room, count unread messages
       for (var chatRoom in chatRooms.docs) {
-        final unreadMessages = await chatRoom.reference
-            .collection('messages')
-            .where('recipientId', isEqualTo: currentUser.uid)
-            .where('isRead', isEqualTo: false)
-            .get();
+        final unreadMessages =
+            await chatRoom.reference
+                .collection('messages')
+                .where('recipientId', isEqualTo: currentUser.uid)
+                .where('isRead', isEqualTo: false)
+                .get();
 
         totalUnread += unreadMessages.docs.length;
       }
 
       return totalUnread;
     } catch (e) {
-      developer.log('Error getting total unread messages: $e', name: 'Dashboard');
+      developer.log(
+        'Error getting total unread messages: $e',
+        name: 'Dashboard',
+      );
       return 0;
     }
   }
@@ -1703,38 +1843,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Icon(icon, color: blueColor),
           if (showUnreadCount)
             StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('privateChats')
-                  .where('participants', arrayContains: _authService.currentUser?.uid)
-                  .snapshots(),
+              stream:
+                  title == 'Friend Requests'
+                      ? FirebaseFirestore.instance
+                          .collection('friendRequests')
+                          .where(
+                            'recipientId',
+                            isEqualTo: _authService.currentUser?.uid,
+                          )
+                          .where('status', isEqualTo: 'pending')
+                          .snapshots()
+                      : FirebaseFirestore.instance
+                          .collection('privateChats')
+                          .where(
+                            'participants',
+                            arrayContains: _authService.currentUser?.uid,
+                          )
+                          .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return SizedBox.shrink();
 
-                int totalUnread = 0;
-                for (var chatRoom in snapshot.data!.docs) {
-                  final unreadMessages = chatRoom.reference
-                      .collection('messages')
-                      .where('recipientId', isEqualTo: _authService.currentUser?.uid)
-                      .where('isRead', isEqualTo: false)
-                      .snapshots();
+                int count = 0;
 
-                  unreadMessages.listen((messages) {
-                    totalUnread += messages.docs.length;
-                  });
+                if (title == 'Friend Requests') {
+                  // Count pending friend requests
+                  count = snapshot.data!.docs.length;
+                } else {
+                  // Count unread messages
+                  int totalUnread = 0;
+                  for (var chatRoom in snapshot.data!.docs) {
+                    final unreadMessages =
+                        chatRoom.reference
+                            .collection('messages')
+                            .where(
+                              'recipientId',
+                              isEqualTo: _authService.currentUser?.uid,
+                            )
+                            .where('isRead', isEqualTo: false)
+                            .snapshots();
+
+                    unreadMessages.listen((messages) {
+                      totalUnread += messages.docs.length;
+                    });
+                  }
+                  count = totalUnread;
                 }
 
-                if (totalUnread > 0) {
+                if (count > 0) {
                   return Positioned(
                     right: 0,
                     top: 0,
                     child: Container(
                       padding: EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: orangeColor,
+                        color:
+                            title == 'Friend Requests'
+                                ? Colors.red
+                                : orangeColor,
                         shape: BoxShape.circle,
                       ),
                       child: Text(
-                        totalUnread.toString(),
+                        count.toString(),
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 10,
@@ -1751,10 +1920,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       title: Text(
         title,
-        style: TextStyle(
-          color: Colors.grey[800],
-          fontWeight: FontWeight.w500,
-        ),
+        style: TextStyle(color: Colors.grey[800], fontWeight: FontWeight.w500),
       ),
       onTap: onTap,
     );

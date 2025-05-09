@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:developer' as developer;
 import '../auth/auth_service.dart';
+import '../services/presence_service.dart';
 import 'package:intl/intl.dart';
 
 class PrivateChatScreen extends StatefulWidget {
@@ -20,8 +21,10 @@ class PrivateChatScreen extends StatefulWidget {
   _PrivateChatScreenState createState() => _PrivateChatScreenState();
 }
 
-class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindingObserver {
+class _PrivateChatScreenState extends State<PrivateChatScreen>
+    with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
+  final PresenceService _presenceService = PresenceService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
@@ -39,6 +42,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
     WidgetsBinding.instance.addObserver(this);
     _setupKeyboardListeners();
     _markMessagesAsRead();
+    _updatePresence(true);
     developer.log('PrivateChatScreen initialized', name: 'PrivateChat');
   }
 
@@ -48,7 +52,18 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
     _messageController.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
+    _updatePresence(false);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updatePresence(true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _updatePresence(false);
+    }
   }
 
   void _setupKeyboardListeners() {
@@ -84,13 +99,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
       if (currentUser == null) return;
 
       // Get unread messages
-      final unreadMessages = await FirebaseFirestore.instance
-          .collection('privateChats')
-          .doc(_getChatRoomId())
-          .collection('messages')
-          .where('recipientId', isEqualTo: currentUser.uid)
-          .where('isRead', isEqualTo: false)
-          .get();
+      final unreadMessages =
+          await FirebaseFirestore.instance
+              .collection('privateChats')
+              .doc(_getChatRoomId())
+              .collection('messages')
+              .where('recipientId', isEqualTo: currentUser.uid)
+              .where('isRead', isEqualTo: false)
+              .get();
 
       // Mark them as read
       for (var doc in unreadMessages.docs) {
@@ -101,10 +117,25 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
     }
   }
 
+  Future<void> _updatePresence(bool isOnline) async {
+    try {
+      final currentUser = _authService.currentUser;
+      if (currentUser == null) return;
+
+      await _presenceService.updatePresence(
+        isOnline: isOnline,
+        screen: 'privateChat',
+        additionalData: widget.friendId,
+      );
+    } catch (e) {
+      developer.log('Error updating presence: $e', name: 'PrivateChat');
+    }
+  }
+
   String _getChatRoomId() {
     final currentUser = _authService.currentUser;
     if (currentUser == null) return '';
-    
+
     // Create a unique chat room ID by sorting user IDs
     final List<String> ids = [currentUser.uid, widget.friendId];
     ids.sort();
@@ -118,7 +149,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
     final currentUser = _authService.currentUser;
     if (currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You need to be logged in to send messages')),
+        const SnackBar(
+          content: Text('You need to be logged in to send messages'),
+        ),
       );
       return;
     }
@@ -129,24 +162,29 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
 
     try {
       // Get user data for sender name and profile picture
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
+      final userDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUser.uid)
+              .get();
 
       String senderName = 'Anonymous';
       String? profileUrl;
 
       if (userDoc.exists) {
         final userData = userDoc.data() as Map<String, dynamic>;
-        senderName = userData['name'] ?? currentUser.email?.split('@').first ?? 'Anonymous';
+        senderName =
+            userData['name'] ??
+            currentUser.email?.split('@').first ??
+            'Anonymous';
         profileUrl = userData['profileImageUrl'];
 
         if (profileUrl == null) {
-          final profileDoc = await FirebaseFirestore.instance
-              .collection('profiles')
-              .doc(currentUser.uid)
-              .get();
+          final profileDoc =
+              await FirebaseFirestore.instance
+                  .collection('profiles')
+                  .doc(currentUser.uid)
+                  .get();
 
           if (profileDoc.exists) {
             final profileData = profileDoc.data() as Map<String, dynamic>;
@@ -200,7 +238,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
   String _formatTimestamp(DateTime timestamp) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(timestamp.year, timestamp.month, timestamp.day);
+    final messageDate = DateTime(
+      timestamp.year,
+      timestamp.month,
+      timestamp.day,
+    );
 
     if (messageDate == today) {
       return DateFormat.jm().format(timestamp);
@@ -218,7 +260,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
     final height = screenSize.height;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final isKeyboardOpen = bottomInset > 0;
-    
+
     if (_isKeyboardVisible != isKeyboardOpen) {
       _isKeyboardVisible = isKeyboardOpen;
       if (isKeyboardOpen) {
@@ -241,37 +283,38 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
-              child: widget.friendProfileUrl != null
-                  ? ClipOval(
-                      child: Image.network(
-                        widget.friendProfileUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Center(
-                            child: Text(
-                              widget.friendName.isNotEmpty
-                                  ? widget.friendName[0].toUpperCase()
-                                  : '?',
-                              style: TextStyle(
-                                color: blueColor,
-                                fontWeight: FontWeight.bold,
+              child:
+                  widget.friendProfileUrl != null
+                      ? ClipOval(
+                        child: Image.network(
+                          widget.friendProfileUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Center(
+                              child: Text(
+                                widget.friendName.isNotEmpty
+                                    ? widget.friendName[0].toUpperCase()
+                                    : '?',
+                                style: TextStyle(
+                                  color: blueColor,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
-                    )
-                  : Center(
-                      child: Text(
-                        widget.friendName.isNotEmpty
-                            ? widget.friendName[0].toUpperCase()
-                            : '?',
-                        style: TextStyle(
-                          color: blueColor,
-                          fontWeight: FontWeight.bold,
+                            );
+                          },
+                        ),
+                      )
+                      : Center(
+                        child: Text(
+                          widget.friendName.isNotEmpty
+                              ? widget.friendName[0].toUpperCase()
+                              : '?',
+                          style: TextStyle(
+                            color: blueColor,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
             ),
             SizedBox(width: 12),
             Column(
@@ -285,19 +328,46 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                     fontSize: 16,
                   ),
                 ),
+                // Friend online status
                 StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('presence')
-                      .doc(widget.friendId)
-                      .snapshots(),
+                  stream: _presenceService.getUserPresenceStream(
+                    widget.friendId,
+                  ),
                   builder: (context, snapshot) {
-                    final isOnline = snapshot.data?.get('isOnline') ?? false;
-                    return Text(
-                      isOnline ? 'Online' : 'Offline',
-                      style: TextStyle(
-                        color: isOnline ? Colors.greenAccent : Colors.white70,
-                        fontSize: 12,
-                      ),
+                    bool isOnline = false;
+                    if (snapshot.hasData && snapshot.data != null) {
+                      try {
+                        final data =
+                            snapshot.data!.data() as Map<String, dynamic>?;
+                        isOnline = data != null && data['isOnline'] == true;
+                      } catch (e) {
+                        developer.log(
+                          'Error getting online status: $e',
+                          name: 'PrivateChat',
+                        );
+                      }
+                    }
+
+                    return Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          margin: EdgeInsets.only(right: 4),
+                          decoration: BoxDecoration(
+                            color: isOnline ? Colors.greenAccent : Colors.grey,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        Text(
+                          isOnline ? 'Online' : 'Offline',
+                          style: TextStyle(
+                            color:
+                                isOnline ? Colors.greenAccent : Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -314,14 +384,16 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('privateChats')
-                  .doc(_getChatRoomId())
-                  .collection('messages')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
+              stream:
+                  FirebaseFirestore.instance
+                      .collection('privateChats')
+                      .doc(_getChatRoomId())
+                      .collection('messages')
+                      .orderBy('timestamp', descending: true)
+                      .snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return Center(child: CircularProgressIndicator());
                 }
 
@@ -330,7 +402,11 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.error_outline, size: 48, color: Colors.red[300]),
+                        Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: Colors.red[300],
+                        ),
                         SizedBox(height: 16),
                         Text(
                           'Error loading messages',
@@ -346,7 +422,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                 }
 
                 final messages = snapshot.data?.docs ?? [];
-                
+
                 if (messages.isEmpty) {
                   return Center(
                     child: Column(
@@ -385,14 +461,20 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
-                    final message = messages[index].data() as Map<String, dynamic>;
-                    final isMe = message['senderId'] == _authService.currentUser?.uid;
-                    final timestamp = (message['timestamp'] as Timestamp).toDate();
+                    final message =
+                        messages[index].data() as Map<String, dynamic>;
+                    final isMe =
+                        message['senderId'] == _authService.currentUser?.uid;
+                    final timestamp =
+                        (message['timestamp'] as Timestamp).toDate();
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
-                        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                        mainAxisAlignment:
+                            isMe
+                                ? MainAxisAlignment.end
+                                : MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           if (!isMe)
@@ -403,52 +485,68 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                               decoration: BoxDecoration(
                                 color: blueColor.withOpacity(0.2),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: blueColor.withOpacity(0.1), width: 2),
+                                border: Border.all(
+                                  color: blueColor.withOpacity(0.1),
+                                  width: 2,
+                                ),
                               ),
-                              child: widget.friendProfileUrl != null
-                                  ? ClipOval(
-                                      child: Image.network(
-                                        widget.friendProfileUrl!,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) {
-                                          return Center(
-                                            child: Text(
-                                              widget.friendName.isNotEmpty
-                                                  ? widget.friendName[0].toUpperCase()
-                                                  : '?',
-                                              style: TextStyle(
-                                                color: blueColor,
-                                                fontWeight: FontWeight.bold,
+                              child:
+                                  widget.friendProfileUrl != null
+                                      ? ClipOval(
+                                        child: Image.network(
+                                          widget.friendProfileUrl!,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (
+                                            context,
+                                            error,
+                                            stackTrace,
+                                          ) {
+                                            return Center(
+                                              child: Text(
+                                                widget.friendName.isNotEmpty
+                                                    ? widget.friendName[0]
+                                                        .toUpperCase()
+                                                    : '?',
+                                                style: TextStyle(
+                                                  color: blueColor,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
                                               ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    )
-                                  : Center(
-                                      child: Text(
-                                        widget.friendName.isNotEmpty
-                                            ? widget.friendName[0].toUpperCase()
-                                            : '?',
-                                        style: TextStyle(
-                                          color: blueColor,
-                                          fontWeight: FontWeight.bold,
+                                            );
+                                          },
+                                        ),
+                                      )
+                                      : Center(
+                                        child: Text(
+                                          widget.friendName.isNotEmpty
+                                              ? widget.friendName[0]
+                                                  .toUpperCase()
+                                              : '?',
+                                          style: TextStyle(
+                                            color: blueColor,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
-                                    ),
                             )
                           else
                             const SizedBox(width: 44),
-                          
+
                           if (isMe) const Spacer(),
-                          
+
                           Container(
                             constraints: BoxConstraints(
                               maxWidth: MediaQuery.of(context).size.width * 0.7,
                             ),
-                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
-                              color: isMe ? orangeColor.withOpacity(0.1) : Colors.white,
+                              color:
+                                  isMe
+                                      ? orangeColor.withOpacity(0.1)
+                                      : Colors.white,
                               borderRadius: BorderRadius.only(
                                 topLeft: Radius.circular(16),
                                 topRight: Radius.circular(16),
@@ -456,7 +554,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                                 bottomRight: Radius.circular(isMe ? 4 : 16),
                               ),
                               border: Border.all(
-                                color: isMe ? orangeColor.withOpacity(0.2) : Colors.grey[300]!,
+                                color:
+                                    isMe
+                                        ? orangeColor.withOpacity(0.2)
+                                        : Colors.grey[300]!,
                                 width: 1,
                               ),
                             ),
@@ -488,9 +589,10 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                                             ? Icons.done_all
                                             : Icons.done,
                                         size: 14,
-                                        color: message['isRead'] == true
-                                            ? Colors.blue
-                                            : Colors.grey[500],
+                                        color:
+                                            message['isRead'] == true
+                                                ? Colors.blue
+                                                : Colors.grey[500],
                                       ),
                                     ],
                                   ],
@@ -498,7 +600,7 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                               ],
                             ),
                           ),
-                          
+
                           if (!isMe) const Spacer(),
                         ],
                       ),
@@ -540,7 +642,9 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                               hintText: 'Type your message...',
                               border: InputBorder.none,
                               hintStyle: TextStyle(color: Colors.grey[500]),
-                              contentPadding: EdgeInsets.symmetric(vertical: 10),
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: 10,
+                              ),
                             ),
                             maxLines: null,
                             textInputAction: TextInputAction.send,
@@ -549,10 +653,15 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                           ),
                         ),
                         IconButton(
-                          icon: Icon(Icons.emoji_emotions_outlined, color: Colors.grey[600]),
+                          icon: Icon(
+                            Icons.emoji_emotions_outlined,
+                            color: Colors.grey[600],
+                          ),
                           onPressed: () {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Emoji picker coming soon!')),
+                              SnackBar(
+                                content: Text('Emoji picker coming soon!'),
+                              ),
                             );
                           },
                         ),
@@ -574,16 +683,17 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
                     ],
                   ),
                   child: IconButton(
-                    icon: _isSending
-                        ? SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : Icon(Icons.send, color: Colors.white),
+                    icon:
+                        _isSending
+                            ? SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                            : Icon(Icons.send, color: Colors.white),
                     onPressed: _isSending ? null : _sendMessage,
                   ),
                 ),
@@ -594,4 +704,4 @@ class _PrivateChatScreenState extends State<PrivateChatScreen> with WidgetsBindi
       ),
     );
   }
-} 
+}
