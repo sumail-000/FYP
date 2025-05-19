@@ -10,6 +10,10 @@ import '../chatroom/chatroom_screen.dart';
 import '../services/presence_service.dart';
 import '../chatbot/chatbot_screen.dart';
 import '../services/activity_points_service.dart';
+import 'display_style_helper.dart'; // Import the new helper
+
+// Enum for document sort options
+enum SortOption { newest, oldest, nameAZ, nameZA, fileSize, fileType }
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -31,6 +35,67 @@ class _DashboardScreenState extends State<DashboardScreen>
   // Define the exact blue color
   final Color blueColor = Color(0xFF2D6DA8);
 
+  // Add these variables to track filtered documents
+  List<Map<String, dynamic>> _allDocuments = [];
+  List<Map<String, dynamic>> _filteredDocuments = [];
+  bool _isFilterApplied = false;
+
+  // Add these variables to the _DashboardScreenState class
+  final List<String> _semesters = [
+    'First',
+    'Second',
+    'Third',
+    'Fourth',
+    'Fifth',
+    'Sixth',
+    'Seventh',
+    'Eighth',
+  ];
+
+  String? _selectedSemester;
+  String? _selectedDepartment;
+  String? _selectedSubject;
+  String? _selectedCourseCode;
+
+  final TextEditingController _departmentController = TextEditingController();
+  final TextEditingController _subjectController = TextEditingController();
+  final TextEditingController _courseCodeController = TextEditingController();
+
+  List<String> _departments = [];
+  List<String> _subjects = [];
+  List<String> _courseCodes = [];
+
+  // Add these variables for dropdown state management
+  bool _showDepartmentDropdown = false;
+  bool _showSubjectDropdown = false;
+  bool _showCourseCodeDropdown = false;
+  bool _showSemesterDropdown = false;
+
+  // Add focus nodes for better control of input fields
+  final FocusNode _departmentFocusNode = FocusNode();
+  final FocusNode _subjectFocusNode = FocusNode();
+  final FocusNode _courseCodeFocusNode = FocusNode();
+  final FocusNode _semesterFocusNode = FocusNode();
+
+  // Flag variables to prevent multiple simultaneous operations
+  bool _isAddingDepartment = false;
+  bool _isAddingSubject = false;
+  bool _isAddingCourseCode = false;
+
+  // Search related variables
+  final TextEditingController _searchController = TextEditingController();
+  FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = '';
+  bool _isSearchActive = false;
+
+  // Sorting related variables
+  SortOption _currentSortOption = SortOption.newest;
+  bool _isSortActive = false;
+
+  // Display style related variables
+  DisplayStyle _currentDisplayStyle = DisplayStyle.grid;
+  bool _isDisplayStyleChanged = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,88 +115,142 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // Update user presence
     _updatePresence(true);
-    
+
     // Check and show streak notification if needed
     // Delay slightly to ensure dashboard is fully loaded
     Future.delayed(Duration(milliseconds: 800), () {
       _checkAndShowStreakNotification();
     });
+
+    // Initialize filter data
+    _initializeFilterData();
+
+    // Add listeners to focus nodes
+    _departmentFocusNode.addListener(() {
+      if (!_departmentFocusNode.hasFocus) {
+        _addNewDepartmentIfNeeded();
+      }
+      setState(() {});
+    });
+
+    _subjectFocusNode.addListener(() {
+      if (!_subjectFocusNode.hasFocus) {
+        _addNewSubjectIfNeeded();
+      }
+      setState(() {});
+    });
+
+    _courseCodeFocusNode.addListener(() {
+      if (!_courseCodeFocusNode.hasFocus) {
+        _addNewCourseCodeIfNeeded();
+      }
+      setState(() {});
+    });
+
+    _semesterFocusNode.addListener(() {
+      setState(() {});
+    });
+
+    // Add search controller listener
+    _searchController.addListener(_handleSearchChanged);
+
+    // Add search focus node listener
+    _searchFocusNode.addListener(() {
+      setState(() {});
+    });
   }
 
-  // Check if there's a streak notification to show and display it
-  Future<void> _checkAndShowStreakNotification() async {
-    try {
-      final user = _authService.currentUser;
-      if (user == null || _isStreakMessageShown) return;
+  // Handle search changes
+  void _handleSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text.trim();
+      _isSearchActive = _searchQuery.isNotEmpty;
 
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      
-      if (!userDoc.exists) return;
-      
-      final userData = userDoc.data() as Map<String, dynamic>;
-      final lastStreakCheck = userData['lastStreakCheck'] as Map<String, dynamic>?;
-      
-      if (lastStreakCheck != null && lastStreakCheck['shown'] == false) {
-        final currentStreak = lastStreakCheck['currentStreak'] as int;
-        final pointsAwarded = lastStreakCheck['pointsAwarded'] as int;
-        
-        // Only show if we have a meaningful streak (more than 1 day)
-        if (currentStreak > 1 && mounted && !_isStreakMessageShown) {
-          setState(() => _isStreakMessageShown = true);
-          
-          // Show a subtle notification at the bottom
-          final streakMessage = 'Login streak: $currentStreak days! +$pointsAwarded point';
-          
-          // Use a less intrusive notification that appears at the bottom
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.local_fire_department, color: Colors.orange, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    streakMessage,
-                    style: TextStyle(
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-              duration: Duration(seconds: 3),
-              behavior: SnackBarBehavior.floating,
-              margin: EdgeInsets.only(bottom: 20, left: 20, right: 20),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(15),
-              ),
-              backgroundColor: Colors.black87,
-            ),
-          );
-          
-          // Mark as shown in the database
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .update({
-            'lastStreakCheck.shown': true
-          });
-          
-          developer.log('Displayed streak notification: Streak=$currentStreak', name: 'Dashboard');
-        }
+      // If search is active, perform search and filter
+      if (_isSearchActive) {
+        _performSearch();
+      } else if (_isFilterApplied) {
+        // If only filters are applied, reapply them
+        _applyFilters();
       }
-    } catch (e) {
-      developer.log('Error checking streak notification: $e', name: 'Dashboard');
+    });
+  }
+
+  // Perform search on documents
+  void _performSearch() {
+    if (_searchQuery.isEmpty) {
+      // If search query is empty but filters are active
+      if (_isFilterApplied) {
+        _applyFilters();
+      } else {
+        // Reset to show all documents
+        setState(() {
+          _isSearchActive = false;
+          _filteredDocuments = [];
+        });
+      }
+      return;
     }
+
+    // Start with the correct document set - either all documents or filtered ones
+    List<Map<String, dynamic>> baseDocuments =
+        _isFilterApplied ? _filteredDocuments : _allDocuments;
+
+    // Search fields in priority order
+    List<Map<String, dynamic>> searchResults =
+        baseDocuments.where((doc) {
+          // Convert search query to lowercase for case-insensitive matching
+          final query = _searchQuery.toLowerCase();
+
+          // Primary fields (exact match gives higher relevance)
+          if (doc['fileName'].toString().toLowerCase().contains(query) ||
+              doc['courseCode'].toString().toLowerCase().contains(query) ||
+              doc['course'].toString().toLowerCase().contains(query)) {
+            return true;
+          }
+
+          // Secondary fields
+          if (doc['department'].toString().toLowerCase().contains(query) ||
+              doc['documentType'].toString().toLowerCase().contains(query) ||
+              doc['semester'].toString().toLowerCase().contains(query) ||
+              doc['uploaderName'].toString().toLowerCase().contains(query)) {
+            return true;
+          }
+
+          // No match
+          return false;
+        }).toList();
+
+    // Update state with search results
+    setState(() {
+      _isSearchActive = true;
+      _filteredDocuments = searchResults;
+    });
+
+    // Log search results
+    developer.log(
+      'Search performed: "$_searchQuery" found ${searchResults.length} results out of ${baseDocuments.length} documents',
+      name: 'Dashboard',
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _updatePresence(false);
+
+    // Dispose of controllers and focus nodes
+    _departmentController.dispose();
+    _subjectController.dispose();
+    _courseCodeController.dispose();
+    _searchController.dispose();
+
+    _departmentFocusNode.dispose();
+    _subjectFocusNode.dispose();
+    _courseCodeFocusNode.dispose();
+    _semesterFocusNode.dispose();
+    _searchFocusNode.dispose();
+
     super.dispose();
   }
 
@@ -306,38 +425,10 @@ class _DashboardScreenState extends State<DashboardScreen>
             ),
             ListTile(
               leading: Icon(Icons.file_copy),
-              title: Row(
-                children: [
-                  Text('Documents'),
-                  SizedBox(width: 8),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'Coming Soon',
-                      style: TextStyle(fontSize: 10, color: Colors.grey[700]),
-                    ),
-                  ),
-                ],
-              ),
+              title: Text('My Uploads'),
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Documents feature coming soon'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.settings),
-              title: Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
+                DashboardService.navigateToMyUploadsScreen(context);
               },
             ),
             ListTile(
@@ -523,7 +614,11 @@ class _DashboardScreenState extends State<DashboardScreen>
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(height * 0.03),
-                      border: Border.all(color: orangeColor, width: 1.5),
+                      border: Border.all(
+                        color:
+                            _searchFocusNode.hasFocus ? blueColor : orangeColor,
+                        width: _searchFocusNode.hasFocus ? 2.0 : 1.5,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.1),
@@ -540,7 +635,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                           width: height * 0.06,
                           height: height * 0.07,
                           decoration: BoxDecoration(
-                            color: orangeColor,
+                            color:
+                                _searchFocusNode.hasFocus
+                                    ? blueColor
+                                    : orangeColor,
                             shape: BoxShape.circle,
                           ),
                           child: Center(
@@ -558,6 +656,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                               horizontal: width * 0.02,
                             ),
                             child: TextField(
+                              controller: _searchController,
+                              focusNode: _searchFocusNode,
                               decoration: InputDecoration(
                                 hintText: 'Search for resources',
                                 border: InputBorder.none,
@@ -565,17 +665,37 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 contentPadding: EdgeInsets.symmetric(
                                   vertical: 10,
                                 ),
+                                suffixIcon:
+                                    _searchQuery.isNotEmpty
+                                        ? IconButton(
+                                          icon: Icon(
+                                            Icons.clear,
+                                            color: Colors.grey[500],
+                                            size: 20,
+                                          ),
+                                          onPressed: _clearSearch,
+                                        )
+                                        : null,
                               ),
+                              onSubmitted: (value) {
+                                // Perform search when user presses enter
+                                if (value.isNotEmpty) {
+                                  _performSearch();
+                                }
+                              },
                             ),
                           ),
                         ),
 
                         Container(
                           margin: EdgeInsets.only(right: width * 0.04),
-                          child: Icon(
-                            Icons.tune,
-                            color: const Color(0xFFf06517),
-                            size: width * 0.07,
+                          child: IconButton(
+                            icon: Icon(
+                              Icons.tune,
+                              color: _isFilterApplied ? blueColor : orangeColor,
+                              size: width * 0.07,
+                            ),
+                            onPressed: _showFilterDialog,
                           ),
                         ),
                       ],
@@ -653,134 +773,437 @@ class _DashboardScreenState extends State<DashboardScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Left filter button
-                      IconButton(
-                        icon: Icon(Icons.filter_list, color: Colors.grey[700]),
-                        onPressed: () {
-                          // Left filter functionality to be implemented later
-                          DashboardService.showFeatureNotAvailable(
-                            context,
-                            "Filters",
-                          );
-                        },
+                      // Left display style toggle button
+                      Stack(
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              DisplayStyleHelper.getToggleIcon(
+                                _currentDisplayStyle,
+                              ),
+                              color:
+                                  _isDisplayStyleChanged
+                                      ? orangeColor
+                                      : Colors.grey[700],
+                            ),
+                            onPressed: _toggleDisplayStyle,
+                          ),
+                          if (_isDisplayStyleChanged)
+                            Positioned(
+                              right: 10,
+                              top: 10,
+                              child: Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: orangeColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
 
-                      // Right sort button
-                      IconButton(
-                        icon: Icon(Icons.sort, color: Colors.grey[700]),
-                        onPressed: () {
-                          _showSortOptions(context);
-                        },
+                      // Right sort button with active indicator
+                      Stack(
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              Icons.sort,
+                              color:
+                                  _isSortActive ? blueColor : Colors.grey[700],
+                            ),
+                            onPressed: () {
+                              _showSortOptions(context);
+                            },
+                          ),
+                          if (_isSortActive)
+                            Positioned(
+                              right: 10,
+                              top: 10,
+                              child: Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: blueColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ),
                 ),
 
+                // Active display style indicator
+                if (_isDisplayStyleChanged &&
+                    _currentDisplayStyle == DisplayStyle.grid)
+                  DisplayStyleHelper.buildDisplayStyleIndicator(
+                    currentStyle: _currentDisplayStyle,
+                    indicatorColor: orangeColor,
+                    onClear: () {
+                      setState(() {
+                        _currentDisplayStyle = DisplayStyle.grid;
+                        _isDisplayStyleChanged = false;
+                      });
+                    },
+                  ),
+
+                // Active sort indicator
+                if (_isSortActive)
+                  Container(
+                    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: blueColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: blueColor.withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.sort, color: blueColor, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          _getSortDescription(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: blueColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _currentSortOption = SortOption.newest;
+                              _isSortActive = false;
+                              // Re-apply filters and search if active
+                              if (_isFilterApplied || _isSearchActive) {
+                                _applyFiltersAndSearch();
+                              }
+                            });
+                          },
+                          child: Icon(Icons.close, color: blueColor, size: 14),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // Recent documents grid
                 Expanded(
-                  child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _getRecentDocuments(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return Center(
-                          child: CircularProgressIndicator(color: orangeColor),
-                        );
-                      }
-
-                      if (snapshot.hasError) {
-                        return Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                  child: Column(
+                    children: [
+                      // Active search indicator
+                      if (_isSearchActive)
+                        Container(
+                          margin: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: blueColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: blueColor.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
                             children: [
-                              Icon(
-                                Icons.error_outline,
-                                color: Colors.red[300],
-                                size: 56,
+                              Icon(Icons.search, color: blueColor, size: 18),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Search: "$_searchQuery"',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.black87,
+                                  ),
+                                ),
                               ),
-                              SizedBox(height: 16),
-                              Text(
-                                'Failed to load documents',
-                                style: TextStyle(color: Colors.grey[700]),
+                              GestureDetector(
+                                onTap: _clearSearch,
+                                child: Container(
+                                  padding: EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: blueColor.withOpacity(0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.close,
+                                    color: blueColor,
+                                    size: 16,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                        );
-                      }
+                        ),
 
-                      final documents = snapshot.data ?? [];
-
-                      if (documents.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                      // Active filter indicator
+                      if (_isFilterApplied)
+                        Container(
+                          margin: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: orangeColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: orangeColor.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
                             children: [
                               Icon(
-                                Icons.folder_open,
-                                color: Colors.grey[400],
-                                size: 64,
+                                Icons.filter_list,
+                                color: orangeColor,
+                                size: 18,
                               ),
-                              SizedBox(height: 16),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _getActiveFilterDescription(),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () {
+                                  _resetFilters();
+                                },
+                                child: Container(
+                                  padding: EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: orangeColor.withOpacity(0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.close,
+                                    color: orangeColor,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // Document count indicator when filtered or searched
+                      if (_isFilterApplied || _isSearchActive)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 4,
+                          ),
+                          child: Row(
+                            children: [
                               Text(
-                                'No documents yet',
+                                'Found ${_filteredDocuments.length} ${_filteredDocuments.length == 1 ? 'document' : 'documents'}',
                                 style: TextStyle(
-                                  fontSize: 16,
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w500,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Try uploading some files',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                              SizedBox(height: 24),
-                              ElevatedButton.icon(
-                                onPressed:
-                                    () =>
-                                        DashboardService.navigateToUploadScreen(
-                                          context,
-                                        ),
-                                icon: Icon(Icons.cloud_upload),
-                                label: Text('Upload Now'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: orangeColor,
-                                  foregroundColor: Colors.white,
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
+                                  color: Colors.grey[700],
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      }
+                        ),
 
-                      return Padding(
-                        padding: EdgeInsets.symmetric(horizontal: width * 0.02),
-                        child: GridView.builder(
-                          physics: BouncingScrollPhysics(),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: 10,
-                                mainAxisSpacing: 10,
-                                childAspectRatio: 0.85,
+                      // Document grid
+                      Expanded(
+                        child: FutureBuilder<List<Map<String, dynamic>>>(
+                          future: _getRecentDocuments(),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  color: orangeColor,
+                                ),
+                              );
+                            }
+
+                            if (snapshot.hasError) {
+                              return Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.error_outline,
+                                      color: Colors.red[300],
+                                      size: 56,
+                                    ),
+                                    SizedBox(height: 16),
+                                    Text(
+                                      'Failed to load documents',
+                                      style: TextStyle(color: Colors.grey[700]),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            final documents = snapshot.data ?? [];
+
+                            // Show empty state if no documents or no filtered results
+                            if (documents.isEmpty) {
+                              return Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _isSearchActive
+                                          ? Icons.search_off
+                                          : _isFilterApplied
+                                          ? Icons.filter_list_off
+                                          : Icons.folder_open,
+                                      color: Colors.grey[400],
+                                      size: 64,
+                                    ),
+                                    SizedBox(height: 16),
+                                    Text(
+                                      _isSearchActive
+                                          ? 'No results for "$_searchQuery"'
+                                          : _isFilterApplied
+                                          ? 'No documents match your filters'
+                                          : 'No documents yet',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      _isSearchActive
+                                          ? 'Try different search terms or browse all documents'
+                                          : _isFilterApplied
+                                          ? 'Try different filter criteria'
+                                          : 'Try uploading some files',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                    SizedBox(height: 24),
+                                    if (_isSearchActive)
+                                      ElevatedButton.icon(
+                                        onPressed: _clearSearch,
+                                        icon: Icon(Icons.clear_all),
+                                        label: Text('Clear Search'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: blueColor,
+                                          foregroundColor: Colors.white,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              30,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else if (_isFilterApplied)
+                                      ElevatedButton.icon(
+                                        onPressed: _resetFilters,
+                                        icon: Icon(Icons.filter_list_off),
+                                        label: Text('Clear Filters'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: blueColor,
+                                          foregroundColor: Colors.white,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              30,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    else
+                                      ElevatedButton.icon(
+                                        onPressed:
+                                            () =>
+                                                DashboardService.navigateToUploadScreen(
+                                                  context,
+                                                ),
+                                        icon: Icon(Icons.cloud_upload),
+                                        label: Text('Upload Now'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: orangeColor,
+                                          foregroundColor: Colors.white,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              30,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            // Return either grid or list view based on display style
+                            return Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: width * 0.02,
                               ),
-                          itemCount: documents.length,
-                          itemBuilder: (context, index) {
-                            final doc = documents[index];
-                            return _buildDocumentCard(doc);
+                              child:
+                                  _currentDisplayStyle == DisplayStyle.grid
+                                      ? DisplayStyleHelper.buildGridView(
+                                        documents: documents,
+                                        width: width,
+                                        itemBuilder:
+                                            (doc) => _buildDocumentCard(doc),
+                                      )
+                                      : DisplayStyleHelper.buildListView(
+                                        documents: documents,
+                                        width: width,
+                                        itemBuilder:
+                                            (doc) =>
+                                                DisplayStyleHelper.buildDocumentListItem(
+                                                  document: doc,
+                                                  primaryColor: orangeColor,
+                                                  secondaryColor: blueColor,
+                                                  onTap:
+                                                      () =>
+                                                          _showDocumentDetails(
+                                                            doc,
+                                                          ),
+                                                ),
+                                      ),
+                            );
                           },
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -851,7 +1274,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           await documentsRef
               .where('university', isEqualTo: userUniversity)
               .orderBy('uploadedAt', descending: true)
-              .limit(10) // Limit to 10 documents
+              .limit(
+                100,
+              ) // Increased limit to have more documents for filtering
               .get();
 
       if (snapshot.docs.isEmpty) {
@@ -867,8 +1292,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       for (var doc in snapshot.docs) {
         final data = doc.data();
-
-        developer.log('Processing document: ${doc.id}', name: 'Dashboard');
 
         // Extract file extension from fileName or format
         String extension = '';
@@ -918,6 +1341,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           'courseCode': data['courseCode'] ?? '',
           'department': data['department'] ?? '',
           'documentType': data['documentType'] ?? '',
+          'semester': data['semester'] ?? '',
           'timeAgo': timeAgo,
           'fileUrl': data['secureUrl'] ?? '',
           'bytes': data['bytes'] ?? 0,
@@ -926,7 +1350,13 @@ class _DashboardScreenState extends State<DashboardScreen>
         });
       }
 
-      return result;
+      // Store all documents for later filtering
+      _allDocuments = result;
+
+      // If search or filter is active, return filtered documents, otherwise return all
+      return (_isSearchActive || _isFilterApplied)
+          ? _filteredDocuments
+          : result;
     } catch (e) {
       developer.log('Error fetching documents: $e', name: 'Dashboard');
       return [];
@@ -959,66 +1389,198 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
-  // Method to show sort options
+  // Method to show sort options with enhanced UI
   void _showSortOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (BuildContext context) {
-        return Container(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Icon(Icons.sort, color: blueColor),
-                    SizedBox(width: 16),
-                    Text(
-                      'Sort By',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: blueColor,
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: EdgeInsets.only(bottom: 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle indicator
+                  Container(
+                    margin: EdgeInsets.only(top: 10),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+
+                  // Header
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: blueColor.withOpacity(0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.sort, color: blueColor),
+                        ),
+                        SizedBox(width: 16),
+                        Text(
+                          'Sort Documents',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: blueColor,
+                          ),
+                        ),
+                        Spacer(),
+                        if (_isSortActive)
+                          TextButton.icon(
+                            onPressed: () {
+                              setModalState(() {
+                                _currentSortOption = SortOption.newest;
+                                _isSortActive = false;
+                              });
+                              _applySortOption(SortOption.newest);
+                              Navigator.pop(context);
+                            },
+                            icon: Icon(Icons.refresh, size: 18),
+                            label: Text('Reset'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: blueColor,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  Divider(height: 1),
+
+                  // Sort options list
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          _buildSortOption(
+                            context: context,
+                            title: 'Newest First',
+                            icon: Icons.calendar_today,
+                            subtitle: 'Most recently uploaded at the top',
+                            option: SortOption.newest,
+                            setModalState: setModalState,
+                          ),
+                          _buildSortOption(
+                            context: context,
+                            title: 'Oldest First',
+                            icon: Icons.history,
+                            subtitle: 'Oldest uploads at the top',
+                            option: SortOption.oldest,
+                            setModalState: setModalState,
+                          ),
+                          _buildSortOption(
+                            context: context,
+                            title: 'Name (A-Z)',
+                            icon: Icons.sort_by_alpha,
+                            subtitle: 'Alphabetical order',
+                            option: SortOption.nameAZ,
+                            setModalState: setModalState,
+                          ),
+                          _buildSortOption(
+                            context: context,
+                            title: 'Name (Z-A)',
+                            icon: Icons.sort_by_alpha,
+                            subtitle: 'Reverse alphabetical order',
+                            option: SortOption.nameZA,
+                            setModalState: setModalState,
+                          ),
+                          _buildSortOption(
+                            context: context,
+                            title: 'File Size',
+                            icon: Icons.data_usage,
+                            subtitle: 'Largest files first',
+                            option: SortOption.fileSize,
+                            setModalState: setModalState,
+                          ),
+                          _buildSortOption(
+                            context: context,
+                            title: 'File Type',
+                            icon: Icons.insert_drive_file,
+                            subtitle: 'Grouped by document format',
+                            option: SortOption.fileType,
+                            setModalState: setModalState,
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Divider(),
-              ListTile(
-                leading: Icon(Icons.calendar_today, color: blueColor),
-                title: Text('Latest Uploads'),
-                onTap: () {
-                  Navigator.pop(context);
-                  setState(() {
-                    // Already the default sort order
-                  });
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.sort_by_alpha, color: blueColor),
-                title: Text('File Name (A-Z)'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Implementation would go here
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Sorting by name'),
-                      behavior: SnackBarBehavior.floating,
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
+    );
+  }
+
+  // Helper method to build a sort option tile
+  Widget _buildSortOption({
+    required BuildContext context,
+    required String title,
+    required IconData icon,
+    required String subtitle,
+    required SortOption option,
+    required Function(Function()) setModalState,
+  }) {
+    final isSelected = _currentSortOption == option;
+
+    return Material(
+      color: isSelected ? blueColor.withOpacity(0.05) : Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          setModalState(() {
+            _currentSortOption = option;
+            _isSortActive = option != SortOption.newest;
+          });
+          _applySortOption(option);
+          Navigator.pop(context);
+        },
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 4),
+          child: ListTile(
+            leading: Container(
+              padding: EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color:
+                    isSelected
+                        ? blueColor.withOpacity(0.1)
+                        : Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                color: isSelected ? blueColor : Colors.grey[600],
+              ),
+            ),
+            title: Text(
+              title,
+              style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? blueColor : Colors.black87,
+              ),
+            ),
+            subtitle: Text(
+              subtitle,
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            trailing:
+                isSelected ? Icon(Icons.check_circle, color: blueColor) : null,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1290,11 +1852,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                           onTap: () {
                             _showCommentDialog(document);
                           },
-                          child: Icon(Icons.comment, size: 14, color: blueColor),
+                          child: Icon(
+                            Icons.comment,
+                            size: 14,
+                            color: blueColor,
+                          ),
                         ),
                       ),
                       SizedBox(width: 8),
-                      
+
                       // Rating button
                       Container(
                         padding: EdgeInsets.all(4),
@@ -1709,10 +2275,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                         bottomRight: Radius.circular(15),
                       ),
                       border: Border(
-                        top: BorderSide(
-                          color: Colors.grey[200]!,
-                          width: 1,
-                        ),
+                        top: BorderSide(color: Colors.grey[200]!, width: 1),
                       ),
                     ),
                     child: Row(
@@ -1756,7 +2319,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                               ),
                             ),
                             SizedBox(width: 8),
-                            
+
                             // Rating button
                             ElevatedButton.icon(
                               onPressed: () {
@@ -1926,26 +2489,27 @@ class _DashboardScreenState extends State<DashboardScreen>
     final TextEditingController commentController = TextEditingController();
     final documentId = document['id'];
     final fileName = document['fileName'] ?? 'Unnamed Document';
-    
+
     // Show loading dialog while fetching comments
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => Center(
-        child: CircularProgressIndicator(color: blueColor),
-      ),
+      builder:
+          (context) =>
+              Center(child: CircularProgressIndicator(color: blueColor)),
     );
-    
+
     // Fetch existing comments
     List<Map<String, dynamic>> comments = [];
     try {
-      final commentsSnapshot = await FirebaseFirestore.instance
-          .collection('documents')
-          .doc(documentId)
-          .collection('comments')
-          .orderBy('createdAt', descending: true)
-          .get();
-          
+      final commentsSnapshot =
+          await FirebaseFirestore.instance
+              .collection('documents')
+              .doc(documentId)
+              .collection('comments')
+              .orderBy('createdAt', descending: true)
+              .get();
+
       for (var doc in commentsSnapshot.docs) {
         final data = doc.data();
         comments.add({
@@ -1957,7 +2521,7 @@ class _DashboardScreenState extends State<DashboardScreen>
           'createdAt': data['createdAt'] as Timestamp?,
         });
       }
-      
+
       // Close loading dialog
       Navigator.pop(context);
     } catch (e) {
@@ -1965,296 +2529,321 @@ class _DashboardScreenState extends State<DashboardScreen>
       Navigator.pop(context);
       developer.log('Error fetching comments: $e', name: 'Dashboard');
     }
-    
+
     // Show comments dialog
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        elevation: 10,
-        child: Container(
-          width: double.maxFinite,
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.7,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: Offset(0, 4),
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            elevation: 10,
+            child: Container(
+              width: double.maxFinite,
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.7,
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header with document title
-              Container(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: blueColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(15),
-                    topRight: Radius.circular(15),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
                   ),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'Comments - $fileName',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      '${comments.length} ${comments.length == 1 ? 'comment' : 'comments'}',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.8),
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
+                ],
               ),
-              
-              // Comments list
-              Flexible(
-                child: comments.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.comment_outlined,
-                                size: 48,
-                                color: Colors.grey[400],
-                              ),
-                              SizedBox(height: 16),
-                              Text(
-                                'No comments yet',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'Be the first to comment!',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: EdgeInsets.all(16),
-                        itemCount: comments.length,
-                        separatorBuilder: (context, index) => Divider(),
-                        itemBuilder: (context, index) {
-                          final comment = comments[index];
-                          final userName = comment['userName'];
-                          final userComment = comment['comment'];
-                          final profileUrl = comment['userProfileUrl'];
-                          final createdAt = comment['createdAt'];
-                          
-                          // Format timestamp
-                          String timeAgo = 'Recently';
-                          if (createdAt != null) {
-                            final now = DateTime.now();
-                            final difference = now.difference(createdAt.toDate());
-                            
-                            if (difference.inDays > 0) {
-                              timeAgo = '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-                            } else if (difference.inHours > 0) {
-                              timeAgo = '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-                            } else if (difference.inMinutes > 0) {
-                              timeAgo = '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-                            } else {
-                              timeAgo = 'Just now';
-                            }
-                          }
-                          
-                          return Container(
-                            padding: EdgeInsets.all(12),
-                            margin: EdgeInsets.symmetric(vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.grey[200]!,
-                                width: 1,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.05),
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // User info row
-                                Row(
-                                  children: [
-                                    // User avatar
-                                    Container(
-                                      width: 36,
-                                      height: 36,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: blueColor.withOpacity(0.1),
-                                        border: Border.all(
-                                          color: blueColor.withOpacity(0.3),
-                                          width: 1,
-                                        ),
-                                      ),
-                                      child: profileUrl != null
-                                          ? ClipOval(
-                                              child: Image.network(
-                                                profileUrl,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (context, error, stackTrace) {
-                                                  return Icon(
-                                                    Icons.person,
-                                                    color: blueColor.withOpacity(0.7),
-                                                    size: 20,
-                                                  );
-                                                },
-                                              ),
-                                            )
-                                          : Icon(
-                                              Icons.person,
-                                              color: blueColor.withOpacity(0.7),
-                                              size: 20,
-                                            ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    
-                                    // Username and time
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            userName,
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          Text(
-                                            timeAgo,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey[600],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                
-                                // Comment text
-                                Padding(
-                                  padding: EdgeInsets.only(left: 44, top: 8),
-                                  child: Text(
-                                    userComment,
-                                    style: TextStyle(fontSize: 14),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              
-              // Comment input section
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border(
-                    top: BorderSide(
-                      color: Colors.grey[300]!,
-                      width: 1,
-                    ),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 4,
-                      spreadRadius: -2,
-                      offset: Offset(0, -2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: commentController,
-                      maxLines: 3,
-                      decoration: InputDecoration(
-                        hintText: 'Write your comment here...',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: blueColor, width: 2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header with document title
+                  Container(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: blueColor,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(15),
+                        topRight: Radius.circular(15),
                       ),
                     ),
-                    SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    child: Column(
                       children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context, false),
-                          child: Text('Cancel'),
-                        ),
-                        SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () => Navigator.pop(context, true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: blueColor,
-                            foregroundColor: Colors.white,
+                        Text(
+                          'Comments - $fileName',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.send, size: 16),
-                              SizedBox(width: 4),
-                              Text('Comment'),
-                            ],
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          '${comments.length} ${comments.length == 1 ? 'comment' : 'comments'}',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 14,
                           ),
                         ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+
+                  // Comments list
+                  Flexible(
+                    child:
+                        comments.isEmpty
+                            ? Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.comment_outlined,
+                                      size: 48,
+                                      color: Colors.grey[400],
+                                    ),
+                                    SizedBox(height: 16),
+                                    Text(
+                                      'No comments yet',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Be the first to comment!',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[500],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                            : ListView.separated(
+                              padding: EdgeInsets.all(16),
+                              itemCount: comments.length,
+                              separatorBuilder: (context, index) => Divider(),
+                              itemBuilder: (context, index) {
+                                final comment = comments[index];
+                                final userName = comment['userName'];
+                                final userComment = comment['comment'];
+                                final profileUrl = comment['userProfileUrl'];
+                                final createdAt = comment['createdAt'];
+
+                                // Format timestamp
+                                String timeAgo = 'Recently';
+                                if (createdAt != null) {
+                                  final now = DateTime.now();
+                                  final difference = now.difference(
+                                    createdAt.toDate(),
+                                  );
+
+                                  if (difference.inDays > 0) {
+                                    timeAgo =
+                                        '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
+                                  } else if (difference.inHours > 0) {
+                                    timeAgo =
+                                        '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
+                                  } else if (difference.inMinutes > 0) {
+                                    timeAgo =
+                                        '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
+                                  } else {
+                                    timeAgo = 'Just now';
+                                  }
+                                }
+
+                                return Container(
+                                  padding: EdgeInsets.all(12),
+                                  margin: EdgeInsets.symmetric(vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.grey[200]!,
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      // User info row
+                                      Row(
+                                        children: [
+                                          // User avatar
+                                          Container(
+                                            width: 36,
+                                            height: 36,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: blueColor.withOpacity(0.1),
+                                              border: Border.all(
+                                                color: blueColor.withOpacity(
+                                                  0.3,
+                                                ),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child:
+                                                profileUrl != null
+                                                    ? ClipOval(
+                                                      child: Image.network(
+                                                        profileUrl,
+                                                        fit: BoxFit.cover,
+                                                        errorBuilder: (
+                                                          context,
+                                                          error,
+                                                          stackTrace,
+                                                        ) {
+                                                          return Icon(
+                                                            Icons.person,
+                                                            color: blueColor
+                                                                .withOpacity(
+                                                                  0.7,
+                                                                ),
+                                                            size: 20,
+                                                          );
+                                                        },
+                                                      ),
+                                                    )
+                                                    : Icon(
+                                                      Icons.person,
+                                                      color: blueColor
+                                                          .withOpacity(0.7),
+                                                      size: 20,
+                                                    ),
+                                          ),
+                                          SizedBox(width: 8),
+
+                                          // Username and time
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  userName,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  timeAgo,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: Colors.grey[600],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+
+                                      // Comment text
+                                      Padding(
+                                        padding: EdgeInsets.only(
+                                          left: 44,
+                                          top: 8,
+                                        ),
+                                        child: Text(
+                                          userComment,
+                                          style: TextStyle(fontSize: 14),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                  ),
+
+                  // Comment input section
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(
+                        top: BorderSide(color: Colors.grey[300]!, width: 1),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 4,
+                          spreadRadius: -2,
+                          offset: Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: commentController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            hintText: 'Write your comment here...',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(
+                                color: blueColor,
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: Text('Cancel'),
+                            ),
+                            SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: blueColor,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.send, size: 16),
+                                  SizedBox(width: 4),
+                                  Text('Comment'),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
 
     if (result == true && commentController.text.isNotEmpty) {
@@ -2268,10 +2857,11 @@ class _DashboardScreenState extends State<DashboardScreen>
         }
 
         // Get current user data
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(currentUser.uid)
-            .get();
+        final userDoc =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUser.uid)
+                .get();
         final userData = userDoc.data() as Map<String, dynamic>?;
 
         // Add comment to Firestore
@@ -2281,7 +2871,8 @@ class _DashboardScreenState extends State<DashboardScreen>
             .collection('comments')
             .add({
               'userId': currentUser.uid,
-              'userName': userData?['name'] ?? currentUser.displayName ?? 'User',
+              'userName':
+                  userData?['name'] ?? currentUser.displayName ?? 'User',
               'userProfileUrl': userData?['profileImageUrl'],
               'comment': commentController.text,
               'createdAt': FieldValue.serverTimestamp(),
@@ -2294,14 +2885,14 @@ class _DashboardScreenState extends State<DashboardScreen>
           'Commented on a document',
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Comment added successfully')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Comment added successfully')));
       } catch (e) {
         developer.log('Error adding comment: $e', name: 'Dashboard');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add comment')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to add comment')));
       }
     }
   }
@@ -2313,45 +2904,47 @@ class _DashboardScreenState extends State<DashboardScreen>
     double rating = 3.0; // Default rating
     double averageRating = 0.0;
     int ratingCount = 0;
-    
+
     // Show loading dialog while fetching ratings
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => Center(
-        child: CircularProgressIndicator(color: orangeColor),
-      ),
+      builder:
+          (context) =>
+              Center(child: CircularProgressIndicator(color: orangeColor)),
     );
-    
+
     // Fetch document to get average rating
     try {
-      final docSnapshot = await FirebaseFirestore.instance
-          .collection('documents')
-          .doc(documentId)
-          .get();
-          
+      final docSnapshot =
+          await FirebaseFirestore.instance
+              .collection('documents')
+              .doc(documentId)
+              .get();
+
       if (docSnapshot.exists) {
         final data = docSnapshot.data() as Map<String, dynamic>;
         averageRating = (data['averageRating'] as num?)?.toDouble() ?? 0.0;
         ratingCount = (data['ratingCount'] as num?)?.toInt() ?? 0;
       }
-      
+
       // Check if current user has already rated
       final currentUser = _authService.currentUser;
       if (currentUser != null) {
-        final userRatingDoc = await FirebaseFirestore.instance
-            .collection('documents')
-            .doc(documentId)
-            .collection('ratings')
-            .doc(currentUser.uid)
-            .get();
-            
+        final userRatingDoc =
+            await FirebaseFirestore.instance
+                .collection('documents')
+                .doc(documentId)
+                .collection('ratings')
+                .doc(currentUser.uid)
+                .get();
+
         if (userRatingDoc.exists) {
           final data = userRatingDoc.data() as Map<String, dynamic>;
           rating = (data['rating'] as num?)?.toDouble() ?? 3.0;
         }
       }
-      
+
       // Close loading dialog
       Navigator.pop(context);
     } catch (e) {
@@ -2359,318 +2952,324 @@ class _DashboardScreenState extends State<DashboardScreen>
       Navigator.pop(context);
       developer.log('Error fetching ratings: $e', name: 'Dashboard');
     }
-    
+
     // Show rating dialog
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        elevation: 10,
-        child: Container(
-          width: double.maxFinite,
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.5,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(15),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: Offset(0, 4),
+      builder:
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            elevation: 10,
+            child: Container(
+              width: double.maxFinite,
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.5,
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header with document title
-              Container(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                decoration: BoxDecoration(
-                  color: orangeColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(15),
-                    topRight: Radius.circular(15),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
                   ),
-                ),
-                child: Center(
-                  child: Text(
-                    'Rate Document',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header with document title
+                  Container(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: orangeColor,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(15),
+                        topRight: Radius.circular(15),
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-              
-              // Document info - make scrollable to handle overflow
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Text(
-                          fileName,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                    child: Center(
+                      child: Text(
+                        'Rate Document',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
                         ),
-                        
-                        SizedBox(height: 24),
-                        
-                        // Current average rating
-                        if (ratingCount > 0) ...[
-                          Container(
-                            padding: EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: Colors.grey[300]!,
-                                width: 1,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+
+                  // Document info - make scrollable to handle overflow
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Text(
+                              fileName,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.08),
-                                  blurRadius: 6,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            child: Column(
-                              children: [
-                                // Average rating with stars
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+
+                            SizedBox(height: 24),
+
+                            // Current average rating
+                            if (ratingCount > 0) ...[
+                              Container(
+                                padding: EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.grey[300]!,
+                                    width: 1,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.08),
+                                      blurRadius: 6,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
                                   children: [
-                                    Text(
-                                      'Average Rating: ',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.grey[700],
-                                      ),
+                                    // Average rating with stars
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          'Average Rating: ',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.grey[700],
+                                          ),
+                                        ),
+                                        Text(
+                                          averageRating.toStringAsFixed(1),
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: orangeColor,
+                                          ),
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          '/5',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Text(
-                                      averageRating.toStringAsFixed(1),
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: orangeColor,
-                                      ),
+
+                                    SizedBox(height: 8),
+
+                                    // Visual star representation
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: List.generate(5, (index) {
+                                        // Show full, half or empty star based on rating
+                                        IconData iconData;
+                                        if (index + 0.5 < averageRating) {
+                                          iconData = Icons.star;
+                                        } else if (index < averageRating) {
+                                          iconData = Icons.star_half;
+                                        } else {
+                                          iconData = Icons.star_border;
+                                        }
+
+                                        return Icon(
+                                          iconData,
+                                          color: orangeColor,
+                                          size: 20,
+                                        );
+                                      }),
                                     ),
-                                    SizedBox(width: 4),
+
+                                    SizedBox(height: 8),
+
+                                    // Total number of ratings
                                     Text(
-                                      '/5',
+                                      'Based on $ratingCount ${ratingCount == 1 ? 'rating' : 'ratings'}',
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 13,
                                         color: Colors.grey[600],
+                                        fontStyle: FontStyle.italic,
                                       ),
                                     ),
                                   ],
                                 ),
-                                
-                                SizedBox(height: 8),
-                                
-                                // Visual star representation
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                              ),
+                              SizedBox(height: 20),
+                            ],
+
+                            Text(
+                              'How would you rate this document?',
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: Colors.grey[800],
+                              ),
+                            ),
+
+                            // Show previous rating message if user has rated before
+                            FutureBuilder<DocumentSnapshot>(
+                              future:
+                                  _authService.currentUser != null
+                                      ? FirebaseFirestore.instance
+                                          .collection('documents')
+                                          .doc(documentId)
+                                          .collection('ratings')
+                                          .doc(_authService.currentUser!.uid)
+                                          .get()
+                                      : null,
+                              builder: (context, snapshot) {
+                                if (snapshot.hasData && snapshot.data!.exists) {
+                                  final previousRating =
+                                      (snapshot.data!.data()
+                                              as Map<String, dynamic>)['rating']
+                                          as double?;
+                                  if (previousRating != null) {
+                                    return Padding(
+                                      padding: EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        'Your previous rating: ${previousRating.toStringAsFixed(1)}',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontStyle: FontStyle.italic,
+                                          color: Colors.grey[600],
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                                return SizedBox(height: 8);
+                              },
+                            ),
+
+                            SizedBox(height: 16),
+
+                            // Rating stars - fix overflow with Wrap
+                            StatefulBuilder(
+                              builder: (context, setState) {
+                                return Wrap(
+                                  alignment: WrapAlignment.center,
                                   children: List.generate(5, (index) {
-                                    // Show full, half or empty star based on rating
-                                    IconData iconData;
-                                    if (index + 0.5 < averageRating) {
-                                      iconData = Icons.star;
-                                    } else if (index < averageRating) {
-                                      iconData = Icons.star_half;
-                                    } else {
-                                      iconData = Icons.star_border;
-                                    }
-                                    
-                                    return Icon(
-                                      iconData,
-                                      color: orangeColor,
-                                      size: 20,
+                                    return IconButton(
+                                      icon: Icon(
+                                        index < rating
+                                            ? Icons.star
+                                            : Icons.star_border,
+                                        color: orangeColor,
+                                        size: 32,
+                                      ),
+                                      padding: EdgeInsets.all(4),
+                                      constraints: BoxConstraints(),
+                                      onPressed: () {
+                                        setState(() {
+                                          rating = index + 1.0;
+                                        });
+                                      },
                                     );
                                   }),
-                                ),
-                                
-                                SizedBox(height: 8),
-                                
-                                // Total number of ratings
-                                Text(
-                                  'Based on $ratingCount ${ratingCount == 1 ? 'rating' : 'ratings'}',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey[600],
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ],
+                                );
+                              },
                             ),
-                          ),
-                          SizedBox(height: 20),
-                        ],
-                        
-                        Text(
-                          'How would you rate this document?',
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: Colors.grey[800],
-                          ),
-                        ),
-                        
-                        // Show previous rating message if user has rated before
-                        FutureBuilder<DocumentSnapshot>(
-                          future: _authService.currentUser != null 
-                              ? FirebaseFirestore.instance
-                                  .collection('documents')
-                                  .doc(documentId)
-                                  .collection('ratings')
-                                  .doc(_authService.currentUser!.uid)
-                                  .get()
-                              : null,
-                          builder: (context, snapshot) {
-                            if (snapshot.hasData && snapshot.data!.exists) {
-                              final previousRating = (snapshot.data!.data() as Map<String, dynamic>)['rating'] as double?;
-                              if (previousRating != null) {
-                                return Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    'Your previous rating: ${previousRating.toStringAsFixed(1)}',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
-                            return SizedBox(height: 8);
-                          },
-                        ),
-                        
-                        SizedBox(height: 16),
-                        
-                        // Rating stars - fix overflow with Wrap
-                        StatefulBuilder(
-                          builder: (context, setState) {
-                            return Wrap(
-                              alignment: WrapAlignment.center,
-                              children: List.generate(5, (index) {
-                                return IconButton(
-                                  icon: Icon(
-                                    index < rating ? Icons.star : Icons.star_border,
+
+                            SizedBox(height: 8),
+
+                            // Rating description
+                            StatefulBuilder(
+                              builder: (context, setState) {
+                                String ratingText = '';
+                                if (rating <= 1) {
+                                  ratingText = 'Poor';
+                                } else if (rating <= 2) {
+                                  ratingText = 'Fair';
+                                } else if (rating <= 3) {
+                                  ratingText = 'Good';
+                                } else if (rating <= 4) {
+                                  ratingText = 'Very Good';
+                                } else {
+                                  ratingText = 'Excellent';
+                                }
+
+                                return Text(
+                                  ratingText,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
                                     color: orangeColor,
-                                    size: 32,
                                   ),
-                                  padding: EdgeInsets.all(4),
-                                  constraints: BoxConstraints(),
-                                  onPressed: () {
-                                    setState(() {
-                                      rating = index + 1.0;
-                                    });
-                                  },
                                 );
-                              }),
-                            );
-                          },
+                              },
+                            ),
+                          ],
                         ),
-                        
-                        SizedBox(height: 8),
-                        
-                        // Rating description
-                        StatefulBuilder(
-                          builder: (context, setState) {
-                            String ratingText = '';
-                            if (rating <= 1) {
-                              ratingText = 'Poor';
-                            } else if (rating <= 2) {
-                              ratingText = 'Fair';
-                            } else if (rating <= 3) {
-                              ratingText = 'Good';
-                            } else if (rating <= 4) {
-                              ratingText = 'Very Good';
-                            } else {
-                              ratingText = 'Excellent';
-                            }
-                            
-                            return Text(
-                              ratingText,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: orangeColor,
-                              ),
-                            );
-                          },
+                      ),
+                    ),
+                  ),
+
+                  // Action buttons
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(15),
+                        bottomRight: Radius.circular(15),
+                      ),
+                      border: Border(
+                        top: BorderSide(color: Colors.grey[200]!, width: 1),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: orangeColor,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.star, size: 16),
+                              SizedBox(width: 4),
+                              Text('Submit'),
+                            ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
+                ],
               ),
-              
-              // Action buttons
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(15),
-                    bottomRight: Radius.circular(15),
-                  ),
-                  border: Border(
-                    top: BorderSide(
-                      color: Colors.grey[200]!,
-                      width: 1,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: Text(
-                        'Cancel',
-                        style: TextStyle(
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: orangeColor,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.star, size: 16),
-                          SizedBox(width: 4),
-                          Text('Submit'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
 
     if (result == true) {
@@ -2696,19 +3295,20 @@ class _DashboardScreenState extends State<DashboardScreen>
             });
 
         // Update average rating in document
-        final ratingsSnapshot = await FirebaseFirestore.instance
-            .collection('documents')
-            .doc(documentId)
-            .collection('ratings')
-            .get();
-            
+        final ratingsSnapshot =
+            await FirebaseFirestore.instance
+                .collection('documents')
+                .doc(documentId)
+                .collection('ratings')
+                .get();
+
         if (ratingsSnapshot.docs.isNotEmpty) {
           double totalRating = 0;
           for (var doc in ratingsSnapshot.docs) {
             totalRating += doc.data()['rating'] as double;
           }
           double averageRating = totalRating / ratingsSnapshot.docs.length;
-          
+
           await FirebaseFirestore.instance
               .collection('documents')
               .doc(documentId)
@@ -2730,9 +3330,9 @@ class _DashboardScreenState extends State<DashboardScreen>
         );
       } catch (e) {
         developer.log('Error adding rating: $e', name: 'Dashboard');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to submit rating')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to submit rating')));
       }
     }
   }
@@ -2868,5 +3468,1536 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
       onTap: onTap,
     );
+  }
+
+  // Add this method to show the filter dialog
+  void _showFilterDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Dialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                elevation: 12,
+                child: Container(
+                  width: double.maxFinite,
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Color(0xFFF8F8F8), // Off-white background color
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Header
+                      Container(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color: blueColor,
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(20),
+                            topRight: Radius.circular(20),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Filter Documents',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Filter Content
+                      Flexible(
+                        child: GestureDetector(
+                          onTap: () {
+                            // Close all dropdowns when tapping outside
+                            setDialogState(() {
+                              _showDepartmentDropdown = false;
+                              _showSubjectDropdown = false;
+                              _showCourseCodeDropdown = false;
+                              _showSemesterDropdown = false;
+                            });
+                          },
+                          behavior: HitTestBehavior.translucent,
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Semester Filter
+                                Text(
+                                  'Semester',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: blueColor,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color:
+                                          _semesterFocusNode.hasFocus
+                                              ? orangeColor
+                                              : Colors.grey[300]!,
+                                      width:
+                                          _semesterFocusNode.hasFocus ? 2 : 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        spreadRadius: 1,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      // Custom semester selection field with dropdown
+                                      InkWell(
+                                        focusNode: _semesterFocusNode,
+                                        onTap: () {
+                                          // Toggle dropdown when tapping on field
+                                          _semesterFocusNode.requestFocus();
+                                          setDialogState(() {
+                                            _showSemesterDropdown =
+                                                !_showSemesterDropdown;
+                                            // Close other dropdowns
+                                            _showDepartmentDropdown = false;
+                                            _showSubjectDropdown = false;
+                                            _showCourseCodeDropdown = false;
+                                          });
+                                        },
+                                        child: Container(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 15,
+                                            vertical: 15,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              // Icon for semester
+                                              Container(
+                                                padding: EdgeInsets.all(6),
+                                                decoration: BoxDecoration(
+                                                  color: orangeColor
+                                                      .withOpacity(0.1),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Icon(
+                                                  Icons.calendar_today,
+                                                  color: orangeColor,
+                                                  size: 18,
+                                                ),
+                                              ),
+                                              SizedBox(width: 12),
+                                              // Text for selected semester or placeholder
+                                              Expanded(
+                                                child: Text(
+                                                  _selectedSemester ??
+                                                      'Select Semester',
+                                                  style: TextStyle(
+                                                    color:
+                                                        _selectedSemester !=
+                                                                null
+                                                            ? Colors.black
+                                                            : Colors
+                                                                .grey
+                                                                .shade600,
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                              ),
+                                              // Dropdown arrow icon
+                                              GestureDetector(
+                                                onTap: () {
+                                                  // Toggle dropdown when clicking on suffix icon
+                                                  setDialogState(() {
+                                                    _showSemesterDropdown =
+                                                        !_showSemesterDropdown;
+                                                    // Close other dropdowns
+                                                    _showDepartmentDropdown =
+                                                        false;
+                                                    _showSubjectDropdown =
+                                                        false;
+                                                    _showCourseCodeDropdown =
+                                                        false;
+                                                  });
+                                                },
+                                                child: Container(
+                                                  padding: EdgeInsets.all(4),
+                                                  decoration: BoxDecoration(
+                                                    color: orangeColor
+                                                        .withOpacity(0.1),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          4,
+                                                        ),
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.arrow_drop_down,
+                                                    color: orangeColor,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+
+                                      // Semesters dropdown
+                                      if (_showSemesterDropdown)
+                                        Container(
+                                          constraints: BoxConstraints(
+                                            maxHeight: 156,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            border: Border(
+                                              top: BorderSide(
+                                                color: Colors.grey[300]!,
+                                              ),
+                                            ),
+                                          ),
+                                          child: GestureDetector(
+                                            onTap:
+                                                () {}, // Prevent taps inside dropdown from closing it
+                                            behavior: HitTestBehavior.opaque,
+                                            child: ListView.builder(
+                                              shrinkWrap: true,
+                                              padding: EdgeInsets.zero,
+                                              itemCount: _semesters.length,
+                                              itemBuilder: (context, index) {
+                                                final semester =
+                                                    _semesters[index];
+                                                return ListTile(
+                                                  dense: true,
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                        horizontal: 15,
+                                                        vertical: 0,
+                                                      ),
+                                                  leading: Container(
+                                                    padding: EdgeInsets.all(6),
+                                                    decoration: BoxDecoration(
+                                                      color: orangeColor
+                                                          .withOpacity(0.1),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            6,
+                                                          ),
+                                                    ),
+                                                    child: Icon(
+                                                      Icons.calendar_today,
+                                                      color: orangeColor,
+                                                      size: 18,
+                                                    ),
+                                                  ),
+                                                  title: Text(semester),
+                                                  onTap: () {
+                                                    // Set semester and hide dropdown
+                                                    setDialogState(() {
+                                                      _selectedSemester =
+                                                          semester;
+                                                      _showSemesterDropdown =
+                                                          false;
+                                                    });
+                                                    setState(() {
+                                                      _selectedSemester =
+                                                          semester;
+                                                    });
+                                                  },
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(height: 20),
+
+                                // Department Filter
+                                Text(
+                                  'Department',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: blueColor,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color:
+                                          _departmentFocusNode.hasFocus
+                                              ? orangeColor
+                                              : Colors.grey[300]!,
+                                      width:
+                                          _departmentFocusNode.hasFocus ? 2 : 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        spreadRadius: 1,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      // Custom department field with dropdown
+                                      TextField(
+                                        controller: _departmentController,
+                                        focusNode: _departmentFocusNode,
+                                        decoration: InputDecoration(
+                                          hintText:
+                                              'Search or select department',
+                                          border: InputBorder.none,
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 15,
+                                            vertical: 15,
+                                          ),
+                                          prefixIcon: Container(
+                                            margin: EdgeInsets.only(
+                                              left: 10,
+                                              right: 5,
+                                            ),
+                                            padding: EdgeInsets.all(3),
+                                            decoration: BoxDecoration(
+                                              color: orangeColor.withOpacity(
+                                                0.1,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Icon(
+                                              Icons.domain,
+                                              color: orangeColor,
+                                              size: 18,
+                                            ),
+                                          ),
+                                          prefixIconConstraints: BoxConstraints(
+                                            minWidth: 40,
+                                            maxHeight: 30,
+                                          ),
+                                          suffixIcon: GestureDetector(
+                                            onTap: () {
+                                              // Toggle dropdown when clicking on suffix icon
+                                              setDialogState(() {
+                                                _showDepartmentDropdown =
+                                                    !_showDepartmentDropdown;
+                                                // Close other dropdowns
+                                                _showSemesterDropdown = false;
+                                                _showSubjectDropdown = false;
+                                                _showCourseCodeDropdown = false;
+                                              });
+                                            },
+                                            child: Container(
+                                              margin: EdgeInsets.only(
+                                                right: 10,
+                                              ),
+                                              padding: EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                color: orangeColor.withOpacity(
+                                                  0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Icon(
+                                                Icons.arrow_drop_down,
+                                                color: orangeColor,
+                                              ),
+                                            ),
+                                          ),
+                                          suffixIconConstraints: BoxConstraints(
+                                            minWidth: 40,
+                                            maxHeight: 40,
+                                          ),
+                                        ),
+                                        onChanged: (value) {
+                                          // Update UI when text changes
+                                          setDialogState(() {
+                                            _selectedDepartment = value;
+                                            _showDepartmentDropdown = true;
+                                          });
+                                          setState(() {
+                                            _selectedDepartment = value;
+                                          });
+                                        },
+                                        onTap: () {
+                                          // Show dropdown when tapping on field
+                                          setDialogState(() {
+                                            _showDepartmentDropdown = true;
+                                            // Close other dropdowns
+                                            _showSemesterDropdown = false;
+                                            _showSubjectDropdown = false;
+                                            _showCourseCodeDropdown = false;
+                                          });
+                                        },
+                                        onSubmitted: (value) {
+                                          _addNewDepartmentIfNeeded();
+                                        },
+                                      ),
+
+                                      // Filtered departments dropdown
+                                      if (_showDepartmentDropdown)
+                                        Container(
+                                          constraints: BoxConstraints(
+                                            maxHeight: 156,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            border: Border(
+                                              top: BorderSide(
+                                                color: Colors.grey[300]!,
+                                              ),
+                                            ),
+                                          ),
+                                          child: GestureDetector(
+                                            onTap:
+                                                () {}, // Prevent taps inside dropdown from closing it
+                                            behavior: HitTestBehavior.opaque,
+                                            child: ListView.builder(
+                                              shrinkWrap: true,
+                                              padding: EdgeInsets.zero,
+                                              itemCount:
+                                                  _getFilteredDepartments()
+                                                      .length,
+                                              itemBuilder: (context, index) {
+                                                final dept =
+                                                    _getFilteredDepartments()[index];
+                                                return ListTile(
+                                                  dense: true,
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                        horizontal: 15,
+                                                        vertical: 0,
+                                                      ),
+                                                  leading: Container(
+                                                    padding: EdgeInsets.all(6),
+                                                    decoration: BoxDecoration(
+                                                      color: orangeColor
+                                                          .withOpacity(0.1),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            6,
+                                                          ),
+                                                    ),
+                                                    child: Icon(
+                                                      Icons.domain,
+                                                      color: orangeColor,
+                                                      size: 18,
+                                                    ),
+                                                  ),
+                                                  title: Text(dept),
+                                                  onTap: () {
+                                                    // Set department and hide dropdown
+                                                    setDialogState(() {
+                                                      _departmentController
+                                                          .text = dept;
+                                                      _selectedDepartment =
+                                                          dept;
+                                                      _showDepartmentDropdown =
+                                                          false;
+                                                    });
+                                                    setState(() {
+                                                      _selectedDepartment =
+                                                          dept;
+                                                    });
+                                                  },
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(height: 20),
+
+                                // Subject Filter
+                                Text(
+                                  'Subject',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: blueColor,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color:
+                                          _subjectFocusNode.hasFocus
+                                              ? orangeColor
+                                              : Colors.grey[300]!,
+                                      width: _subjectFocusNode.hasFocus ? 2 : 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        spreadRadius: 1,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      // Custom subject field with dropdown
+                                      TextField(
+                                        controller: _subjectController,
+                                        focusNode: _subjectFocusNode,
+                                        decoration: InputDecoration(
+                                          hintText: 'Search or select subject',
+                                          border: InputBorder.none,
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 15,
+                                            vertical: 15,
+                                          ),
+                                          prefixIcon: Container(
+                                            margin: EdgeInsets.only(
+                                              left: 10,
+                                              right: 5,
+                                            ),
+                                            padding: EdgeInsets.all(3),
+                                            decoration: BoxDecoration(
+                                              color: orangeColor.withOpacity(
+                                                0.1,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Icon(
+                                              Icons.book,
+                                              color: orangeColor,
+                                              size: 18,
+                                            ),
+                                          ),
+                                          prefixIconConstraints: BoxConstraints(
+                                            minWidth: 40,
+                                            maxHeight: 30,
+                                          ),
+                                          suffixIcon: GestureDetector(
+                                            onTap: () {
+                                              // Toggle dropdown when clicking on suffix icon
+                                              setDialogState(() {
+                                                _showSubjectDropdown =
+                                                    !_showSubjectDropdown;
+                                                // Close other dropdowns
+                                                _showSemesterDropdown = false;
+                                                _showDepartmentDropdown = false;
+                                                _showCourseCodeDropdown = false;
+                                              });
+                                            },
+                                            child: Container(
+                                              margin: EdgeInsets.only(
+                                                right: 10,
+                                              ),
+                                              padding: EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                color: orangeColor.withOpacity(
+                                                  0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Icon(
+                                                Icons.arrow_drop_down,
+                                                color: orangeColor,
+                                              ),
+                                            ),
+                                          ),
+                                          suffixIconConstraints: BoxConstraints(
+                                            minWidth: 40,
+                                            maxHeight: 40,
+                                          ),
+                                        ),
+                                        onChanged: (value) {
+                                          // Update UI when text changes
+                                          setDialogState(() {
+                                            _selectedSubject = value;
+                                            _showSubjectDropdown = true;
+                                          });
+                                          setState(() {
+                                            _selectedSubject = value;
+                                          });
+                                        },
+                                        onTap: () {
+                                          // Show dropdown when tapping on field
+                                          setDialogState(() {
+                                            _showSubjectDropdown = true;
+                                            // Close other dropdowns
+                                            _showSemesterDropdown = false;
+                                            _showDepartmentDropdown = false;
+                                            _showCourseCodeDropdown = false;
+                                          });
+                                        },
+                                        onSubmitted: (value) {
+                                          _addNewSubjectIfNeeded();
+                                        },
+                                      ),
+
+                                      // Filtered subjects dropdown
+                                      if (_showSubjectDropdown)
+                                        Container(
+                                          constraints: BoxConstraints(
+                                            maxHeight: 156,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            border: Border(
+                                              top: BorderSide(
+                                                color: Colors.grey[300]!,
+                                              ),
+                                            ),
+                                          ),
+                                          child: GestureDetector(
+                                            onTap:
+                                                () {}, // Prevent taps inside dropdown from closing it
+                                            behavior: HitTestBehavior.opaque,
+                                            child: ListView.builder(
+                                              shrinkWrap: true,
+                                              padding: EdgeInsets.zero,
+                                              itemCount:
+                                                  _getFilteredSubjects().length,
+                                              itemBuilder: (context, index) {
+                                                final subject =
+                                                    _getFilteredSubjects()[index];
+                                                return ListTile(
+                                                  dense: true,
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                        horizontal: 15,
+                                                        vertical: 0,
+                                                      ),
+                                                  leading: Container(
+                                                    padding: EdgeInsets.all(6),
+                                                    decoration: BoxDecoration(
+                                                      color: orangeColor
+                                                          .withOpacity(0.1),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            6,
+                                                          ),
+                                                    ),
+                                                    child: Icon(
+                                                      Icons.book,
+                                                      color: orangeColor,
+                                                      size: 18,
+                                                    ),
+                                                  ),
+                                                  title: Text(subject),
+                                                  onTap: () {
+                                                    // Set subject and hide dropdown
+                                                    setDialogState(() {
+                                                      _subjectController.text =
+                                                          subject;
+                                                      _selectedSubject =
+                                                          subject;
+                                                      _showSubjectDropdown =
+                                                          false;
+                                                    });
+                                                    setState(() {
+                                                      _selectedSubject =
+                                                          subject;
+                                                    });
+                                                  },
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(height: 20),
+
+                                // Course Code Filter
+                                Text(
+                                  'Course Code',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: blueColor,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color:
+                                          _courseCodeFocusNode.hasFocus
+                                              ? orangeColor
+                                              : Colors.grey[300]!,
+                                      width:
+                                          _courseCodeFocusNode.hasFocus ? 2 : 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        spreadRadius: 1,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      // Custom course code field with dropdown
+                                      TextField(
+                                        controller: _courseCodeController,
+                                        focusNode: _courseCodeFocusNode,
+                                        decoration: InputDecoration(
+                                          hintText:
+                                              'Search or select course code',
+                                          border: InputBorder.none,
+                                          contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 15,
+                                            vertical: 15,
+                                          ),
+                                          prefixIcon: Container(
+                                            margin: EdgeInsets.only(
+                                              left: 10,
+                                              right: 5,
+                                            ),
+                                            padding: EdgeInsets.all(3),
+                                            decoration: BoxDecoration(
+                                              color: orangeColor.withOpacity(
+                                                0.1,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Icon(
+                                              Icons.code,
+                                              color: orangeColor,
+                                              size: 18,
+                                            ),
+                                          ),
+                                          prefixIconConstraints: BoxConstraints(
+                                            minWidth: 40,
+                                            maxHeight: 30,
+                                          ),
+                                          suffixIcon: GestureDetector(
+                                            onTap: () {
+                                              // Toggle dropdown when clicking on suffix icon
+                                              setDialogState(() {
+                                                _showCourseCodeDropdown =
+                                                    !_showCourseCodeDropdown;
+                                                // Close other dropdowns
+                                                _showSemesterDropdown = false;
+                                                _showDepartmentDropdown = false;
+                                                _showSubjectDropdown = false;
+                                              });
+                                            },
+                                            child: Container(
+                                              margin: EdgeInsets.only(
+                                                right: 10,
+                                              ),
+                                              padding: EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                color: orangeColor.withOpacity(
+                                                  0.1,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Icon(
+                                                Icons.arrow_drop_down,
+                                                color: orangeColor,
+                                              ),
+                                            ),
+                                          ),
+                                          suffixIconConstraints: BoxConstraints(
+                                            minWidth: 40,
+                                            maxHeight: 40,
+                                          ),
+                                        ),
+                                        onChanged: (value) {
+                                          // Update UI when text changes
+                                          setDialogState(() {
+                                            _selectedCourseCode = value;
+                                            _showCourseCodeDropdown = true;
+                                          });
+                                          setState(() {
+                                            _selectedCourseCode = value;
+                                          });
+                                        },
+                                        onTap: () {
+                                          // Show dropdown when tapping on field
+                                          setDialogState(() {
+                                            _showCourseCodeDropdown = true;
+                                            // Close other dropdowns
+                                            _showSemesterDropdown = false;
+                                            _showDepartmentDropdown = false;
+                                            _showSubjectDropdown = false;
+                                          });
+                                        },
+                                        onSubmitted: (value) {
+                                          _addNewCourseCodeIfNeeded();
+                                        },
+                                      ),
+
+                                      // Filtered course codes dropdown
+                                      if (_showCourseCodeDropdown)
+                                        Container(
+                                          constraints: BoxConstraints(
+                                            maxHeight: 156,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            border: Border(
+                                              top: BorderSide(
+                                                color: Colors.grey[300]!,
+                                              ),
+                                            ),
+                                          ),
+                                          child: GestureDetector(
+                                            onTap:
+                                                () {}, // Prevent taps inside dropdown from closing it
+                                            behavior: HitTestBehavior.opaque,
+                                            child: ListView.builder(
+                                              shrinkWrap: true,
+                                              padding: EdgeInsets.zero,
+                                              itemCount:
+                                                  _getFilteredCourseCodes()
+                                                      .length,
+                                              itemBuilder: (context, index) {
+                                                final code =
+                                                    _getFilteredCourseCodes()[index];
+                                                return ListTile(
+                                                  dense: true,
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                        horizontal: 15,
+                                                        vertical: 0,
+                                                      ),
+                                                  leading: Container(
+                                                    padding: EdgeInsets.all(6),
+                                                    decoration: BoxDecoration(
+                                                      color: orangeColor
+                                                          .withOpacity(0.1),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            6,
+                                                          ),
+                                                    ),
+                                                    child: Icon(
+                                                      Icons.code,
+                                                      color: orangeColor,
+                                                      size: 18,
+                                                    ),
+                                                  ),
+                                                  title: Text(code),
+                                                  onTap: () {
+                                                    // Set course code and hide dropdown
+                                                    setDialogState(() {
+                                                      _courseCodeController
+                                                          .text = code;
+                                                      _selectedCourseCode =
+                                                          code;
+                                                      _showCourseCodeDropdown =
+                                                          false;
+                                                    });
+                                                    setState(() {
+                                                      _selectedCourseCode =
+                                                          code;
+                                                    });
+                                                  },
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                SizedBox(height: 20),
+
+                                // Action Buttons
+                                Padding(
+                                  padding: EdgeInsets.only(top: 20),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      TextButton(
+                                        onPressed: () {
+                                          _resetFilters();
+                                          Navigator.pop(context);
+                                        },
+                                        child: Text(
+                                          'Reset',
+                                          style: TextStyle(color: orangeColor),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      TextButton(
+                                        onPressed: () {
+                                          Navigator.pop(context);
+                                        },
+                                        child: Text(
+                                          'Cancel',
+                                          style: TextStyle(
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 8),
+                                      ElevatedButton(
+                                        onPressed: () {
+                                          // Apply filters
+                                          _applyFilters();
+                                          Navigator.pop(context);
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: orangeColor,
+                                          foregroundColor: Colors.white,
+                                          elevation: 2,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Apply Filters',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+    );
+  }
+
+  // Method to apply filters
+  void _applyFilters() {
+    // Check if any filter is selected
+    bool hasFilters =
+        _selectedSemester != null ||
+        (_selectedDepartment != null && _selectedDepartment!.isNotEmpty) ||
+        (_selectedSubject != null && _selectedSubject!.isNotEmpty) ||
+        (_selectedCourseCode != null && _selectedCourseCode!.isNotEmpty);
+
+    if (!hasFilters) {
+      setState(() {
+        _isFilterApplied = false;
+        // If search is active, perform search on all documents
+        if (_isSearchActive) {
+          _performSearch();
+        } else {
+          _filteredDocuments = [];
+        }
+      });
+      return;
+    }
+
+    // Determine base set of documents to filter
+    // If search is active, filter from search results, otherwise filter from all documents
+    List<Map<String, dynamic>> baseDocuments =
+        _isSearchActive ? _filteredDocuments : _allDocuments;
+
+    // Filter the documents based on selected criteria
+    List<Map<String, dynamic>> filtered =
+        baseDocuments.where((doc) {
+          bool matches = true;
+
+          // Match by semester
+          if (_selectedSemester != null) {
+            // Some documents might store semester as ordinal (First, Second)
+            // and others might store as number (1, 2)
+            bool semesterMatch = false;
+
+            // Check for direct match
+            if (doc['semester'].toString().toLowerCase() ==
+                _selectedSemester!.toLowerCase()) {
+              semesterMatch = true;
+            }
+
+            // Also check for numeric equivalent
+            int? semesterNumber;
+            switch (_selectedSemester!.toLowerCase()) {
+              case 'first':
+                semesterNumber = 1;
+                break;
+              case 'second':
+                semesterNumber = 2;
+                break;
+              case 'third':
+                semesterNumber = 3;
+                break;
+              case 'fourth':
+                semesterNumber = 4;
+                break;
+              case 'fifth':
+                semesterNumber = 5;
+                break;
+              case 'sixth':
+                semesterNumber = 6;
+                break;
+              case 'seventh':
+                semesterNumber = 7;
+                break;
+              case 'eighth':
+                semesterNumber = 8;
+                break;
+            }
+
+            // Check if document semester matches the number
+            if (semesterNumber != null &&
+                doc['semester'].toString() == semesterNumber.toString()) {
+              semesterMatch = true;
+            }
+
+            matches = matches && semesterMatch;
+          }
+
+          // Match by department
+          if (_selectedDepartment != null && _selectedDepartment!.isNotEmpty) {
+            matches =
+                matches &&
+                doc['department'].toString().toLowerCase().contains(
+                  _selectedDepartment!.toLowerCase(),
+                );
+          }
+
+          // Match by subject/course
+          if (_selectedSubject != null && _selectedSubject!.isNotEmpty) {
+            matches =
+                matches &&
+                doc['course'].toString().toLowerCase().contains(
+                  _selectedSubject!.toLowerCase(),
+                );
+          }
+
+          // Match by course code
+          if (_selectedCourseCode != null && _selectedCourseCode!.isNotEmpty) {
+            matches =
+                matches &&
+                doc['courseCode'].toString().toLowerCase().contains(
+                  _selectedCourseCode!.toLowerCase(),
+                );
+          }
+
+          return matches;
+        }).toList();
+
+    // Update the filtered documents list and set filter applied flag
+    setState(() {
+      _filteredDocuments = filtered;
+      _isFilterApplied = true;
+    });
+
+    // Debug log filter results
+    developer.log(
+      'Filter applied: Found ${_filteredDocuments.length} matching documents out of ${baseDocuments.length}',
+      name: 'Dashboard',
+    );
+  }
+
+  // Update resetFilters to work with search
+  void _resetFilters() {
+    setState(() {
+      _selectedSemester = null;
+      _selectedDepartment = null;
+      _selectedSubject = null;
+      _selectedCourseCode = null;
+      _departmentController.clear();
+      _subjectController.clear();
+      _courseCodeController.clear();
+      _isFilterApplied = false;
+
+      // If search is active, reapply search without filters
+      if (_isSearchActive) {
+        _performSearch();
+      } else {
+        _filteredDocuments = [];
+      }
+    });
+  }
+
+  // Add method to clear search
+  void _clearSearch() {
+    setState(() {
+      _searchController.clear();
+      _searchQuery = '';
+      _isSearchActive = false;
+
+      // If filters are applied, show filtered results
+      if (_isFilterApplied) {
+        _applyFilters();
+      } else {
+        _filteredDocuments = [];
+      }
+    });
+  }
+
+  // Initialize filter data from Firebase
+  Future<void> _initializeFilterData() async {
+    try {
+      // Get departments
+      final departmentsSnapshot =
+          await FirebaseFirestore.instance.collection('departments').get();
+      _departments =
+          departmentsSnapshot.docs
+              .map((doc) => doc['name'].toString())
+              .toList();
+
+      // Get subjects
+      final subjectsSnapshot =
+          await FirebaseFirestore.instance.collection('courses').get();
+      _subjects =
+          subjectsSnapshot.docs.map((doc) => doc['name'].toString()).toList();
+
+      // Get course codes
+      final courseCodesSnapshot =
+          await FirebaseFirestore.instance.collection('course_codes').get();
+      _courseCodes =
+          courseCodesSnapshot.docs
+              .map((doc) => doc['code'].toString())
+              .toList();
+
+      setState(() {
+        // Update UI with loaded data
+      });
+    } catch (e) {
+      developer.log('Error loading filter data: $e', name: 'Dashboard');
+    }
+  }
+
+  // Check if there's a streak notification to show and display it
+  Future<void> _checkAndShowStreakNotification() async {
+    try {
+      final user = _authService.currentUser;
+      if (user == null || _isStreakMessageShown) return;
+
+      final userDoc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get();
+
+      if (!userDoc.exists) return;
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final lastStreakCheck =
+          userData['lastStreakCheck'] as Map<String, dynamic>?;
+
+      if (lastStreakCheck != null && lastStreakCheck['shown'] == false) {
+        final currentStreak = lastStreakCheck['currentStreak'] as int;
+        final pointsAwarded = lastStreakCheck['pointsAwarded'] as int;
+
+        // Only show if we have a meaningful streak (more than 1 day)
+        if (currentStreak > 1 && mounted && !_isStreakMessageShown) {
+          setState(() => _isStreakMessageShown = true);
+
+          // Show a subtle notification at the bottom
+          final streakMessage =
+              'Login streak: $currentStreak days! +$pointsAwarded point';
+
+          // Use a less intrusive notification that appears at the bottom
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.local_fire_department,
+                    color: Colors.orange,
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Text(streakMessage, style: TextStyle(fontSize: 13)),
+                ],
+              ),
+              duration: Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.only(bottom: 20, left: 20, right: 20),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+              backgroundColor: Colors.black87,
+            ),
+          );
+
+          // Mark as shown in the database
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .update({'lastStreakCheck.shown': true});
+
+          developer.log(
+            'Displayed streak notification: Streak=$currentStreak',
+            name: 'Dashboard',
+          );
+        }
+      }
+    } catch (e) {
+      developer.log(
+        'Error checking streak notification: $e',
+        name: 'Dashboard',
+      );
+    }
+  }
+
+  // Get filtered departments based on the search text
+  List<String> _getFilteredDepartments() {
+    final searchText = _departmentController.text.toLowerCase();
+    if (searchText.isEmpty) {
+      // Return all departments if no search text
+      return _departments;
+    }
+
+    // Filter departments that contain the search text
+    return _departments
+        .where((dept) => dept.toLowerCase().contains(searchText))
+        .toList();
+  }
+
+  // Get filtered subjects based on the search text
+  List<String> _getFilteredSubjects() {
+    final searchText = _subjectController.text.toLowerCase();
+    if (searchText.isEmpty) {
+      // Return all subjects if no search text
+      return _subjects;
+    }
+
+    // Filter subjects that contain the search text
+    return _subjects
+        .where((subject) => subject.toLowerCase().contains(searchText))
+        .toList();
+  }
+
+  // Get filtered course codes based on the search text
+  List<String> _getFilteredCourseCodes() {
+    final searchText = _courseCodeController.text.toLowerCase();
+    if (searchText.isEmpty) {
+      // Return all course codes if no search text
+      return _courseCodes;
+    }
+
+    // Filter course codes that contain the search text
+    return _courseCodes
+        .where((code) => code.toLowerCase().contains(searchText))
+        .toList();
+  }
+
+  // Add method for adding a new department
+  Future<void> _addNewDepartmentIfNeeded() async {
+    // Prevent multiple simultaneous calls
+    if (_isAddingDepartment) {
+      return;
+    }
+
+    // Set flag to indicate we're in the process of adding
+    _isAddingDepartment = true;
+
+    try {
+      // Get text from controller and trim whitespace
+      final departmentText = _departmentController.text.trim();
+
+      if (departmentText.isEmpty) {
+        setState(() {
+          _showDepartmentDropdown = false;
+        });
+        return;
+      }
+
+      // First refresh the departments list to get the latest data
+      await _initializeFilterData();
+
+      // Check if department is in the list
+      if (!_departments.contains(departmentText)) {
+        // This would be where you'd add a new department
+        // For now, we'll just update the state
+        setState(() {
+          _selectedDepartment = departmentText;
+        });
+      } else {
+        setState(() {
+          _selectedDepartment = departmentText;
+        });
+      }
+
+      // Hide dropdown
+      setState(() {
+        _showDepartmentDropdown = false;
+      });
+    } finally {
+      // Reset flag when done, regardless of success or failure
+      _isAddingDepartment = false;
+    }
+  }
+
+  // Implementation for adding new subject
+  Future<void> _addNewSubjectIfNeeded() async {
+    if (_isAddingSubject) return;
+    _isAddingSubject = true;
+
+    try {
+      final subjectText = _subjectController.text.trim();
+      if (subjectText.isEmpty) {
+        setState(() {
+          _showSubjectDropdown = false;
+        });
+        return;
+      }
+
+      await _initializeFilterData();
+
+      setState(() {
+        _selectedSubject = subjectText;
+        _showSubjectDropdown = false;
+      });
+    } finally {
+      _isAddingSubject = false;
+    }
+  }
+
+  // Implementation for adding new course code
+  Future<void> _addNewCourseCodeIfNeeded() async {
+    if (_isAddingCourseCode) return;
+    _isAddingCourseCode = true;
+
+    try {
+      final codeText = _courseCodeController.text.trim();
+      if (codeText.isEmpty) {
+        setState(() {
+          _showCourseCodeDropdown = false;
+        });
+        return;
+      }
+
+      await _initializeFilterData();
+
+      setState(() {
+        _selectedCourseCode = codeText;
+        _showCourseCodeDropdown = false;
+      });
+    } finally {
+      _isAddingCourseCode = false;
+    }
+  }
+
+  // Replace the existing _showFilterOptions method
+  void _showFilterOptions() {
+    _showFilterDialog();
+  }
+
+  // Helper method to generate a description of active filters
+  String _getActiveFilterDescription() {
+    List<String> activeFilters = [];
+
+    if (_selectedSemester != null) {
+      activeFilters.add('Semester: $_selectedSemester');
+    }
+
+    if (_selectedDepartment != null && _selectedDepartment!.isNotEmpty) {
+      activeFilters.add('Department: $_selectedDepartment');
+    }
+
+    if (_selectedSubject != null && _selectedSubject!.isNotEmpty) {
+      activeFilters.add('Subject: $_selectedSubject');
+    }
+
+    if (_selectedCourseCode != null && _selectedCourseCode!.isNotEmpty) {
+      activeFilters.add('Course Code: $_selectedCourseCode');
+    }
+
+    return activeFilters.join(' • ');
+  }
+
+  // Method to apply sort to documents
+  void _applySortOption(SortOption option) {
+    setState(() {
+      _currentSortOption = option;
+      _isSortActive = option != SortOption.newest; // Default sort is newest
+
+      // Apply sort to the appropriate document list
+      List<Map<String, dynamic>> docsToSort =
+          (_isFilterApplied || _isSearchActive)
+              ? _filteredDocuments
+              : _allDocuments;
+
+      switch (option) {
+        case SortOption.newest:
+          // Already sorted by newest in Firestore query
+          // Just make sure any previously sorted lists are restored to original order
+          if (_isFilterApplied || _isSearchActive) {
+            _applyFiltersAndSearch();
+          }
+          break;
+
+        case SortOption.oldest:
+          docsToSort.sort((a, b) {
+            // Convert timeAgo strings to comparable values
+            // This is a simplified approach - ideally we would sort by actual timestamps
+            final timeA = a['timeAgo'] ?? '';
+            final timeB = b['timeAgo'] ?? '';
+
+            // Handle "Just now" case
+            if (timeA == 'Just now') return 1;
+            if (timeB == 'Just now') return -1;
+
+            // Sort by numeric component in descending order
+            final numA = _extractNumericValue(timeA);
+            final numB = _extractNumericValue(timeB);
+
+            return numB.compareTo(numA); // Reverse order for oldest first
+          });
+          break;
+
+        case SortOption.nameAZ:
+          docsToSort.sort((a, b) {
+            final nameA = (a['fileName'] ?? '').toString().toLowerCase();
+            final nameB = (b['fileName'] ?? '').toString().toLowerCase();
+            return nameA.compareTo(nameB);
+          });
+          break;
+
+        case SortOption.nameZA:
+          docsToSort.sort((a, b) {
+            final nameA = (a['fileName'] ?? '').toString().toLowerCase();
+            final nameB = (b['fileName'] ?? '').toString().toLowerCase();
+            return nameB.compareTo(nameA);
+          });
+          break;
+
+        case SortOption.fileSize:
+          docsToSort.sort((a, b) {
+            final sizeA = a['bytes'] as int? ?? 0;
+            final sizeB = b['bytes'] as int? ?? 0;
+            return sizeB.compareTo(sizeA); // Largest first
+          });
+          break;
+
+        case SortOption.fileType:
+          docsToSort.sort((a, b) {
+            final typeA = (a['extension'] ?? '').toString().toLowerCase();
+            final typeB = (b['extension'] ?? '').toString().toLowerCase();
+            return typeA.compareTo(typeB);
+          });
+          break;
+      }
+
+      // Update the appropriate list with sorted results
+      if (_isFilterApplied || _isSearchActive) {
+        _filteredDocuments = List.from(docsToSort);
+      } else {
+        _allDocuments = List.from(docsToSort);
+      }
+    });
+  }
+
+  // Helper method to extract numeric value from timeAgo string for sorting
+  int _extractNumericValue(String timeAgo) {
+    // Extract numeric part from strings like "2 days ago", "5 hours ago"
+    final regex = RegExp(r'(\d+)');
+    final match = regex.firstMatch(timeAgo);
+    if (match != null) {
+      final value = int.tryParse(match.group(1) ?? '0') ?? 0;
+
+      // Convert to comparable values (all in minutes)
+      if (timeAgo.contains('day')) {
+        return value * 24 * 60; // days to minutes
+      } else if (timeAgo.contains('hour')) {
+        return value * 60; // hours to minutes
+      } else if (timeAgo.contains('minute')) {
+        return value;
+      }
+    }
+    return 0;
+  }
+
+  // Helper method to apply both filters and search
+  void _applyFiltersAndSearch() {
+    // If search is active, start with search results on all documents
+    if (_isSearchActive) {
+      _performSearch();
+
+      // Then apply filters if needed
+      if (_isFilterApplied) {
+        _applyFilters();
+      }
+    }
+    // Otherwise just apply filters if needed
+    else if (_isFilterApplied) {
+      _applyFilters();
+    }
+  }
+
+  // Helper method to get the sort description
+  String _getSortDescription() {
+    switch (_currentSortOption) {
+      case SortOption.newest:
+        return 'Newest First';
+      case SortOption.oldest:
+        return 'Oldest First';
+      case SortOption.nameAZ:
+        return 'Name (A-Z)';
+      case SortOption.nameZA:
+        return 'Name (Z-A)';
+      case SortOption.fileSize:
+        return 'File Size';
+      case SortOption.fileType:
+        return 'File Type';
+    }
+  }
+
+  // Toggle display style between grid and list
+  void _toggleDisplayStyle() {
+    setState(() {
+      _currentDisplayStyle =
+          _currentDisplayStyle == DisplayStyle.grid
+              ? DisplayStyle.list
+              : DisplayStyle.grid;
+      _isDisplayStyleChanged = _currentDisplayStyle != DisplayStyle.grid;
+    });
   }
 }

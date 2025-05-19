@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import '../upload/upload_screen.dart';
 import '../profile/profile_screen.dart';
 import '../chatbot/chatbot_screen.dart';
+import '../upload/recent_uploads_screen.dart';
 
 class DashboardService {
   // Navigate to the upload screen
@@ -10,6 +11,14 @@ class DashboardService {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => UploadScreen()),
+    );
+  }
+
+  // Navigate to my uploads screen (recent uploads)
+  static void navigateToMyUploadsScreen(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => RecentUploadsScreen()),
     );
   }
 
@@ -65,7 +74,9 @@ class DashboardService {
     // Show a message that downloads are not supported on Cloudinary's free plan
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Cloudinary does not support direct downloads on the free plan.'),
+        content: Text(
+          'Cloudinary does not support direct downloads on the free plan.',
+        ),
         behavior: SnackBarBehavior.floating,
         duration: Duration(seconds: 4),
         backgroundColor: Colors.red[700],
@@ -73,4 +84,3 @@ class DashboardService {
     );
   }
 }
-

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'dart:developer' as developer;
+import 'package:http/http.dart' as http;
 
 class ChatbotResponse {
   final String text;
@@ -14,41 +15,6 @@ class ChatbotResponse {
     this.fileType,
     this.suggestions,
   });
-
-  factory ChatbotResponse.fromJson(Map<String, dynamic> json) {
-    return ChatbotResponse(
-      text: json['text'] as String,
-      fileUrl: json['fileUrl'] as String?,
-      fileType: json['fileType'] as String?,
-      suggestions:
-          json['suggestions'] != null
-              ? List<String>.from(json['suggestions'])
-              : null,
-    );
-  }
-}
-
-class ChatbotIntent {
-  final String intent;
-  final List<String> patterns;
-  final List<ChatbotResponse> responses;
-
-  ChatbotIntent({
-    required this.intent,
-    required this.patterns,
-    required this.responses,
-  });
-
-  factory ChatbotIntent.fromJson(Map<String, dynamic> json) {
-    return ChatbotIntent(
-      intent: json['intent'] as String,
-      patterns: List<String>.from(json['patterns']),
-      responses:
-          (json['responses'] as List)
-              .map((response) => ChatbotResponse.fromJson(response))
-              .toList(),
-    );
-  }
 }
 
 class ChatbotService {
@@ -56,112 +22,37 @@ class ChatbotService {
   factory ChatbotService() => _instance;
   ChatbotService._internal();
 
-  List<ChatbotIntent> _intents = [];
+  // URL should be updated with your actual ngrok URL from Colab
+  // This is a placeholder and should be replaced with your actual endpoint
+  String _apiUrl = '';
   bool _isInitialized = false;
+  final List<Map<String, String>> _conversationHistory = [];
 
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      // Load conversation data from assets
-      final String jsonData = await rootBundle.loadString(
-        'assets/chatbot_data.json',
-      );
-      final Map<String, dynamic> data = json.decode(jsonData);
-
-      _intents =
-          (data['intents'] as List)
-              .map((intent) => ChatbotIntent.fromJson(intent))
-              .toList();
+      // You could fetch the API URL from your server or a config file
+      // For now, we'll hardcode it or provide a method to set it
+      _apiUrl =
+          'https://150c-34-143-236-37.ngrok-free.app/chat'; // Replace with your actual ngrok URL
 
       _isInitialized = true;
       developer.log(
-        'Chatbot service initialized with ${_intents.length} intents',
+        'Chatbot service initialized with API URL: $_apiUrl',
         name: 'ChatbotService',
       );
     } catch (e) {
       developer.log('Error initializing chatbot: $e', name: 'ChatbotService');
-      // Fallback to basic intents if file loading fails
-      _setupBasicIntents();
+      throw Exception('Failed to initialize chatbot service: $e');
     }
   }
 
-  void _setupBasicIntents() {
-    _intents = [
-      ChatbotIntent(
-        intent: 'greeting',
-        patterns: ['hello', 'hi', 'hey', 'greetings'],
-        responses: [
-          ChatbotResponse(
-            text:
-                'Hello! Ask me anything about journalism, media, or news reporting.',
-          ),
-        ],
-      ),
-      ChatbotIntent(
-        intent: 'news_reporting',
-        patterns: [
-          'what is news reporting',
-          'news reporting',
-          'reporting news',
-        ],
-        responses: [
-          ChatbotResponse(
-            text:
-                'News reporting means gathering information about events and presenting it to the public through media',
-            fileUrl: 'news_reporting.pdf',
-            fileType: 'pdf',
-          ),
-        ],
-      ),
-      ChatbotIntent(
-        intent: 'challenges',
-        patterns: [
-          'challenges in news reporting',
-          'reporting challenges',
-          'news challenges',
-        ],
-        responses: [
-          ChatbotResponse(
-            text:
-                'Lack of access to reliable sources.\nSafety in conflict areas.\nRisk of fake news.',
-            fileUrl: 'challenges.pdf',
-            fileType: 'pdf',
-          ),
-        ],
-      ),
-      ChatbotIntent(
-        intent: 'thanks',
-        patterns: ['thank you', 'thanks', 'appreciate it'],
-        responses: [
-          ChatbotResponse(
-            text: 'You\'re welcome! Is there anything else you want to know?',
-            suggestions: [
-              'What is news reporting?',
-              'Challenges in News Reporting',
-            ],
-          ),
-        ],
-      ),
-      ChatbotIntent(
-        intent: 'fallback',
-        patterns: [],
-        responses: [
-          ChatbotResponse(
-            text:
-                'I\'m not sure about that. You can ask me about "news reporting" or "challenges in news reporting".',
-            suggestions: [
-              'What is news reporting?',
-              'Challenges in News Reporting',
-            ],
-          ),
-        ],
-      ),
-    ];
-
-    _isInitialized = true;
+  // Method to update API URL (useful for changing ngrok URLs)
+  void updateApiUrl(String newUrl) {
+    _apiUrl = newUrl;
     developer.log(
-      'Chatbot service initialized with basic intents',
+      'Chatbot API URL updated to: $_apiUrl',
       name: 'ChatbotService',
     );
   }
@@ -171,29 +62,130 @@ class ChatbotService {
       await initialize();
     }
 
-    final String normalizedInput = userInput.toLowerCase().trim();
-
-    // Find matching intent
-    for (final intent in _intents) {
-      for (final pattern in intent.patterns) {
-        if (normalizedInput.contains(pattern.toLowerCase())) {
-          // Return a random response from the matching intent
-          final responses = intent.responses;
-          final randomIndex =
-              (DateTime.now().millisecondsSinceEpoch % responses.length)
-                  .toInt();
-          return responses[randomIndex];
-        }
-      }
+    if (_apiUrl.isEmpty) {
+      throw Exception('Chatbot API URL is not set');
     }
 
-    // Return fallback response if no match found
-    final fallbackIntent = _intents.firstWhere(
-      (intent) => intent.intent == 'fallback',
+    try {
+      // Add user message to conversation history
+      _conversationHistory.add({"role": "USER", "content": userInput});
+
+      // Prepare the request body
+      final Map<String, dynamic> requestBody = {
+        'message': userInput,
+        'conversation_history': _conversationHistory,
+      };
+
+      developer.log(
+        'Sending request to API: $_apiUrl with message: $userInput',
+        name: 'ChatbotService',
+      );
+
+      // Make API call to FastChat server
+      final response = await http
+          .post(
+            Uri.parse(_apiUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(requestBody),
+          )
+          .timeout(
+            Duration(seconds: 60),
+            onTimeout: () {
+              throw Exception(
+                'Request timed out. The server might be busy or starting up. Please try again later.',
+              );
+            },
+          );
+
+      developer.log(
+        'Received response with status code: ${response.statusCode}',
+        name: 'ChatbotService',
+      );
+
+      if (response.statusCode == 200) {
+        // Parse the response
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+
+        // Get the assistant's response text
+        final String assistantResponse =
+            responseData['response'] ?? 'No response from the server';
+
+        // Add assistant response to conversation history
+        _conversationHistory.add({
+          "role": "ASSISTANT",
+          "content": assistantResponse,
+        });
+
+        // Log response for debugging
+        developer.log(
+          'Received response from chatbot: $assistantResponse',
+          name: 'ChatbotService',
+        );
+
+        // Return the response
+        return ChatbotResponse(
+          text: assistantResponse,
+          // Suggestions could be added later if the API supports them
+        );
+      } else if (response.statusCode == 500) {
+        // Try to get error message from response
+        String errorMessage = 'Unknown server error';
+        try {
+          final Map<String, dynamic> errorData = jsonDecode(response.body);
+          errorMessage = errorData['error'] ?? 'Server error occurred';
+        } catch (e) {
+          errorMessage = 'Server error: ${response.body}';
+        }
+
+        // Log the detailed error
+        developer.log(
+          'Server error (500): $errorMessage',
+          name: 'ChatbotService',
+        );
+
+        throw Exception('Server error: $errorMessage');
+      } else {
+        // Log the error
+        developer.log(
+          'Error calling chatbot API: ${response.statusCode} - ${response.body}',
+          name: 'ChatbotService',
+        );
+
+        throw Exception('Failed to get response: ${response.statusCode}');
+      }
+    } catch (e) {
+      developer.log(
+        'Error getting chatbot response: $e',
+        name: 'ChatbotService',
+      );
+
+      // Add a specific error message for common issues
+      String errorMessage = 'Failed to communicate with chatbot';
+
+      if (e.toString().contains('SocketException') ||
+          e.toString().contains('Connection refused')) {
+        errorMessage =
+            'Cannot connect to the server. Please check that the API URL is correct and the server is running.';
+      } else if (e.toString().contains('timed out')) {
+        errorMessage =
+            'Request timed out. The server might be busy or starting up. Please try again later.';
+      } else if (e.toString().contains('model_name')) {
+        errorMessage =
+            'The server is experiencing an internal error. The model may be loading or not configured properly.';
+      } else {
+        errorMessage = 'Error: ${e.toString()}';
+      }
+
+      throw Exception(errorMessage);
+    }
+  }
+
+  // Clear conversation history
+  void resetConversation() {
+    _conversationHistory.clear();
+    developer.log(
+      'Chatbot conversation history cleared',
+      name: 'ChatbotService',
     );
-    final responses = fallbackIntent.responses;
-    final randomIndex =
-        (DateTime.now().millisecondsSinceEpoch % responses.length).toInt();
-    return responses[randomIndex];
   }
 }

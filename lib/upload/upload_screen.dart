@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'upload_service.dart';
+import 'backend_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'dart:math';
@@ -15,6 +16,7 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _isUploading = false;
   List<DocumentItem> _selectedFiles = [];
   final UploadService _uploadService = UploadService();
+  final BackendService _backendService = BackendService();
   final Color orangeColor = Color(0xFFf06517);
   final Color blueColor = Color(0xFF2D6DA8);
   bool _showDetailsScreen = false;
@@ -94,10 +96,13 @@ class _UploadScreenState extends State<UploadScreen> {
   @override
   void initState() {
     super.initState();
-    // Load departments and course codes when the screen initializes with forced refresh
-    _loadDepartments(forceRefresh: true);
-    _loadCourses(forceRefresh: true);
-    _loadCourseCodes(forceRefresh: true);
+    // Fetch departments and courses
+    _fetchOptions();
+
+    // Check backend configuration
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkBackendConfiguration();
+    });
 
     // Add listener to department focus node
     _departmentFocusNode.addListener(() {
@@ -149,6 +154,31 @@ class _UploadScreenState extends State<UploadScreen> {
     _documentNameFocusNode.addListener(() {
       setState(() {});
     });
+  }
+
+  // Fetch all options for dropdowns
+  void _fetchOptions() {
+    _loadDepartments(forceRefresh: true);
+    _loadCourses(forceRefresh: true);
+    _loadCourseCodes(forceRefresh: true);
+  }
+
+  // Check backend configuration
+  Future<void> _checkBackendConfiguration() async {
+    await _backendService.initialize();
+    if (!_backendService.isConfigured) {
+      final bool configured = await _backendService.configureBackendUrl(
+        context,
+      );
+      if (configured) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Backend server configured successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
   }
 
   // Load saved departments from UploadService
@@ -2513,100 +2543,58 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  // Upload button
-  void _uploadFiles() async {
-    if (_selectedFiles.isEmpty) return;
+  // Upload files to server
+  Future<void> _uploadFiles() async {
+    if (_selectedFiles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No files selected for upload'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-    // Validate required fields before upload
-    List<String> missingFields = [];
-    bool hasValidationErrors = false;
+    // Check if backend is configured
+    await _backendService.initialize();
 
-    // Check if all documents have required metadata
-    for (int i = 0; i < _selectedFiles.length; i++) {
-      final doc = _selectedFiles[i];
-
-      // Required fields validation
+    // Check for validation errors
+    List<String> errorMessages = [];
+    for (var doc in _selectedFiles) {
       if (doc.nameController.text.trim().isEmpty) {
-        missingFields.add('Document name for ${i + 1}');
-        hasValidationErrors = true;
-      }
-
-      if (doc.type == null) {
-        missingFields.add('Document type for ${doc.nameController.text}');
-        hasValidationErrors = true;
-      }
-
-      if (doc.category == null) {
-        missingFields.add('Category for ${doc.nameController.text}');
-        hasValidationErrors = true;
-      }
-
-      if (doc.semester == null) {
-        missingFields.add('Semester for ${doc.nameController.text}');
-        hasValidationErrors = true;
-      }
-
-      if (doc.department == null || doc.department!.isEmpty) {
-        missingFields.add('Department for ${doc.nameController.text}');
-        hasValidationErrors = true;
-      }
-
-      if (doc.course == null || doc.course!.isEmpty) {
-        missingFields.add('Course for ${doc.nameController.text}');
-        hasValidationErrors = true;
-      }
-
-      if (doc.courseCodeController.text.trim().isEmpty) {
-        missingFields.add('Course code for ${doc.nameController.text}');
-        hasValidationErrors = true;
+        errorMessages.add('Document name is required for ${doc.fileName}');
       }
     }
 
-    // Show validation errors if any
-    if (hasValidationErrors) {
-      // Display a dialog with missing fields
+    if (errorMessages.isNotEmpty) {
       showDialog(
         context: context,
         builder:
             (context) => AlertDialog(
-              title: Text('Missing Information'),
-              content: Container(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Please fill in the following required fields:'),
-                    SizedBox(height: 10),
-                    Container(
-                      height: min(200, missingFields.length * 24.0),
-                      child: ListView(
-                        shrinkWrap: true,
-                        children:
-                            missingFields
-                                .map(
-                                  (field) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 4.0),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '• ',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Expanded(child: Text(field)),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
+              title: Text('Validation Errors'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Please fix the following errors:'),
+                  SizedBox(height: 10),
+                  ...errorMessages.map(
+                    (error) => Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(child: Text(error)),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               actions: [
                 TextButton(
@@ -2635,15 +2623,92 @@ class _UploadScreenState extends State<UploadScreen> {
           };
         }).toList();
 
+    // If backend is not configured, ask user if they want to configure it
+    if (!_backendService.isConfigured) {
+      final shouldConfigure =
+          await showDialog<bool>(
+            context: context,
+            builder:
+                (context) => AlertDialog(
+                  title: Text('Backend Server Not Configured'),
+                  content: Text(
+                    'Your document processing backend is not configured. This means documents will only be uploaded to Cloudinary but not processed for content extraction. Would you like to configure it now?',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text('Not Now'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text('Configure'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blueColor,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+          ) ??
+          false;
+
+      if (shouldConfigure) {
+        final configured = await _backendService.configureBackendUrl(context);
+        if (!configured) {
+          // User cancelled configuration, ask if they want to proceed anyway
+          final proceed =
+              await showDialog<bool>(
+                context: context,
+                builder:
+                    (context) => AlertDialog(
+                      title: Text('Proceed Without Backend?'),
+                      content: Text(
+                        'Do you want to proceed with the upload anyway? Your documents will only be uploaded to Cloudinary.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text('Cancel'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: Text('Proceed'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: orangeColor,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+              ) ??
+              false;
+
+          if (!proceed) return;
+        }
+      }
+    }
+
     // Show upload progress screen and handle uploads
     try {
+      setState(() {
+        _isUploading = true;
+      });
+
       final success = await _uploadService.uploadFiles(context, uploads);
 
       if (success) {
         // After successful upload, navigate back to dashboard
         Navigator.pop(context);
       }
+
+      setState(() {
+        _isUploading = false;
+      });
     } catch (e) {
+      setState(() {
+        _isUploading = false;
+      });
+
       // Show error message
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

@@ -108,9 +108,19 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
               .where('isRead', isEqualTo: false)
               .get();
 
-      // Mark them as read
-      for (var doc in unreadMessages.docs) {
-        await doc.reference.update({'isRead': true});
+      // Use batch update for better performance
+      if (unreadMessages.docs.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+
+        for (var doc in unreadMessages.docs) {
+          batch.update(doc.reference, {'isRead': true});
+        }
+
+        await batch.commit();
+        developer.log(
+          'Marked ${unreadMessages.docs.length} messages as read',
+          name: 'PrivateChat',
+        );
       }
     } catch (e) {
       developer.log('Error marking messages as read: $e', name: 'PrivateChat');
@@ -279,14 +289,14 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.white,
                 shape: BoxShape.circle,
+                color: blueColor.withOpacity(0.3),
                 border: Border.all(color: Colors.white, width: 2),
               ),
-              child:
-                  widget.friendProfileUrl != null
-                      ? ClipOval(
-                        child: Image.network(
+              child: ClipOval(
+                child:
+                    widget.friendProfileUrl != null
+                        ? Image.network(
                           widget.friendProfileUrl!,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) {
@@ -296,25 +306,25 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                                     ? widget.friendName[0].toUpperCase()
                                     : '?',
                                 style: TextStyle(
-                                  color: blueColor,
+                                  color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             );
                           },
-                        ),
-                      )
-                      : Center(
-                        child: Text(
-                          widget.friendName.isNotEmpty
-                              ? widget.friendName[0].toUpperCase()
-                              : '?',
-                          style: TextStyle(
-                            color: blueColor,
-                            fontWeight: FontWeight.bold,
+                        )
+                        : Center(
+                          child: Text(
+                            widget.friendName.isNotEmpty
+                                ? widget.friendName[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                      ),
+              ),
             ),
             SizedBox(width: 12),
             Column(
@@ -467,6 +477,12 @@ class _PrivateChatScreenState extends State<PrivateChatScreen>
                         message['senderId'] == _authService.currentUser?.uid;
                     final timestamp =
                         (message['timestamp'] as Timestamp).toDate();
+
+                    // Mark messages as read in real-time when they appear in the UI
+                    if (!isMe && message['isRead'] == false) {
+                      // Don't await - fire and forget to avoid UI blocking
+                      messages[index].reference.update({'isRead': true});
+                    }
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8),

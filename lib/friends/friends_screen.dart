@@ -620,7 +620,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
         }
 
         final userData = snapshot.data!;
-        final userName = userData['name'] ?? 'User';
+        final userName =
+            userData['name'] ??
+            userData['displayName'] ??
+            (userData['email']?.toString().split('@').first) ??
+            'User';
         final profileImageUrl =
             userData['profileImageUrl'] ?? userData['secureUrl'];
 
@@ -638,7 +642,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
     Map<String, dynamic> userData,
     bool isPinned,
   ) {
-    final userName = userData['name'] ?? 'User';
+    final userName =
+        userData['name'] ??
+        userData['displayName'] ??
+        (userData['email']?.toString().split('@').first) ??
+        'User';
     final profileImageUrl =
         userData['profileImageUrl'] ?? userData['secureUrl'];
 

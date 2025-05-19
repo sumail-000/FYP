@@ -33,10 +33,13 @@ class _ChatbotScreenState extends State<ChatbotScreen>
   final PresenceService _presenceService = PresenceService();
   final ChatbotService _chatbotService = ChatbotService();
   final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _apiUrlController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   bool _isLoading = false;
+  bool _isSendingMessage = false;
   List<ChatbotMessage> _messages = [];
+  String _currentApiUrl = '';
 
   // App colors
   final Color blueColor = const Color(0xFF2D6DA8);
@@ -56,6 +59,7 @@ class _ChatbotScreenState extends State<ChatbotScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _messageController.dispose();
+    _apiUrlController.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
     _updatePresence(false);
@@ -87,15 +91,16 @@ class _ChatbotScreenState extends State<ChatbotScreen>
     try {
       await _chatbotService.initialize();
 
-      // Get initial greeting from chatbot
-      final response = await _chatbotService.getResponse('hello');
+      // Get the current API URL for display
+      _currentApiUrl = 'https://YOUR-NGROK-URL-HERE.ngrok.io/chat';
+      _apiUrlController.text = _currentApiUrl;
 
       setState(() {
         _messages = [
           ChatbotMessage(
-            text: response.text,
+            text:
+                "Hello! I'm your AI assistant. Please set the API URL first by clicking the settings icon in the top-right corner.",
             isUserMessage: false,
-            suggestions: response.suggestions,
           ),
         ];
         _isLoading = false;
@@ -105,13 +110,9 @@ class _ChatbotScreenState extends State<ChatbotScreen>
       setState(() {
         _messages = [
           ChatbotMessage(
-            text: 'Hello! Ask me anything about Academia Hub.',
+            text:
+                "Error initializing the chatbot service. Please try again by clicking the settings icon and setting the API URL.",
             isUserMessage: false,
-            suggestions: [
-              'Tell me about courses',
-              'How to use the chat feature',
-              'How to add friends',
-            ],
           ),
         ];
         _isLoading = false;
@@ -129,13 +130,145 @@ class _ChatbotScreenState extends State<ChatbotScreen>
     }
   }
 
-  void _sendMessage(String text) {
+  void _updateApiUrl() {
+    final newUrl = _apiUrlController.text.trim();
+    if (newUrl.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('API URL cannot be empty')));
+      return;
+    }
+
+    if (!newUrl.startsWith('http')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('API URL must start with http:// or https://')),
+      );
+      return;
+    }
+
+    setState(() {
+      _currentApiUrl = newUrl;
+    });
+
+    _chatbotService.updateApiUrl(newUrl);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('API URL updated successfully')));
+
+    Navigator.pop(context); // Close dialog
+
+    // Add a system message
+    setState(() {
+      _messages.add(
+        ChatbotMessage(text: "Connected to API: $newUrl", isUserMessage: false),
+      );
+    });
+
+    // Reset the conversation in the service
+    _chatbotService.resetConversation();
+  }
+
+  void _showApiUrlDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text('Set API URL'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Enter your Ngrok URL for the FastChat API:',
+                  style: TextStyle(fontSize: 14),
+                ),
+                SizedBox(height: 8),
+                TextField(
+                  controller: _apiUrlController,
+                  decoration: InputDecoration(
+                    hintText: 'https://your-ngrok-url.ngrok.io/chat',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
+                  onSubmitted: (_) => _updateApiUrl(),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Note: This should be the ngrok URL forwarding to your FastChat Flask API on Colab',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('CANCEL'),
+              ),
+              ElevatedButton(
+                onPressed: _updateApiUrl,
+                child: Text('SAVE'),
+                style: ElevatedButton.styleFrom(backgroundColor: blueColor),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _resetConversation() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text('Reset Conversation'),
+            content: Text('This will clear all messages. Are you sure?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('CANCEL'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    _messages.clear();
+                    _messages.add(
+                      ChatbotMessage(
+                        text:
+                            "Conversation has been reset. You can start a new chat now.",
+                        isUserMessage: false,
+                      ),
+                    );
+                  });
+                  _chatbotService.resetConversation();
+                },
+                child: Text('RESET'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
+
+    // Check if API URL is set
+    if (_currentApiUrl.isEmpty ||
+        _currentApiUrl == 'https://YOUR-NGROK-URL-HERE.ngrok.io/chat') {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Please set the API URL first')));
+      _showApiUrlDialog();
+      return;
+    }
 
     // Add user message
     setState(() {
       _messages.add(ChatbotMessage(text: text, isUserMessage: true));
-      _isLoading = true;
+      _isSendingMessage = true;
     });
 
     // Clear text field
@@ -144,47 +277,38 @@ class _ChatbotScreenState extends State<ChatbotScreen>
     // Scroll to bottom
     Future.delayed(Duration(milliseconds: 100), _scrollToBottom);
 
-    // Get response from chatbot service
-    _chatbotService
-        .getResponse(text)
-        .then((response) {
-          setState(() {
-            _messages.add(
-              ChatbotMessage(
-                text: response.text,
-                isUserMessage: false,
-                fileUrl: response.fileUrl,
-                fileType: response.fileType,
-                suggestions: response.suggestions,
-              ),
-            );
-            _isLoading = false;
-          });
+    try {
+      // Get response from chatbot service
+      final response = await _chatbotService.getResponse(text);
 
-          // Scroll to bottom after response
-          Future.delayed(Duration(milliseconds: 100), _scrollToBottom);
-        })
-        .catchError((error) {
-          developer.log(
-            'Error getting chatbot response: $error',
-            name: 'Chatbot',
-          );
-          setState(() {
-            _messages.add(
-              ChatbotMessage(
-                text: 'Sorry, I encountered an error. Please try again later.',
-                isUserMessage: false,
-              ),
-            );
-            _isLoading = false;
-          });
-          Future.delayed(Duration(milliseconds: 100), _scrollToBottom);
-        });
-  }
-
-  void _useSuggestion(String suggestion) {
-    _messageController.text = suggestion;
-    _sendMessage(suggestion);
+      setState(() {
+        _messages.add(
+          ChatbotMessage(
+            text: response.text,
+            isUserMessage: false,
+            fileUrl: response.fileUrl,
+            fileType: response.fileType,
+            suggestions: response.suggestions,
+          ),
+        );
+        _isSendingMessage = false;
+      });
+    } catch (e) {
+      developer.log('Error getting chatbot response: $e', name: 'Chatbot');
+      setState(() {
+        _messages.add(
+          ChatbotMessage(
+            text:
+                "Sorry, I couldn't connect to the AI service. Please check your API URL and internet connection.",
+            isUserMessage: false,
+          ),
+        );
+        _isSendingMessage = false;
+      });
+    } finally {
+      // Scroll to bottom after response
+      Future.delayed(Duration(milliseconds: 100), _scrollToBottom);
+    }
   }
 
   @override
@@ -213,7 +337,7 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                   Expanded(
                     child: Center(
                       child: Text(
-                        'Chatbot',
+                        'AI Assistant',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 22,
@@ -223,10 +347,12 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.menu, color: Colors.white),
-                    onPressed: () {
-                      // Menu functionality can be added later
-                    },
+                    icon: Icon(Icons.refresh, color: Colors.white),
+                    onPressed: _resetConversation,
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.settings, color: Colors.white),
+                    onPressed: _showApiUrlDialog,
                   ),
                 ],
               ),
@@ -236,57 +362,29 @@ class _ChatbotScreenState extends State<ChatbotScreen>
       ),
       body: Column(
         children: [
+          // Chat messages
           Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.all(16),
-              itemCount: _messages.length + (_isLoading ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index == _messages.length) {
-                  // Show loading indicator
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      margin: EdgeInsets.only(right: 80, bottom: 12),
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: blueColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: blueColor,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Text(
-                            'Thinking...',
-                            style: TextStyle(color: blueColor),
-                          ),
-                        ],
-                      ),
+            child:
+                _isLoading
+                    ? Center(child: CircularProgressIndicator(color: blueColor))
+                    : ListView.builder(
+                      controller: _scrollController,
+                      padding: EdgeInsets.all(16),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        return _buildMessageItem(_messages[index]);
+                      },
                     ),
-                  );
-                }
-
-                final message = _messages[index];
-                return _buildMessageItem(message);
-              },
-            ),
           ),
+
+          // Message input
           Container(
             padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withOpacity(0.1),
                   blurRadius: 4,
                   offset: Offset(0, -2),
                 ),
@@ -296,37 +394,47 @@ class _ChatbotScreenState extends State<ChatbotScreen>
               children: [
                 Expanded(
                   child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: Colors.grey[200],
+                      color: Colors.grey[100],
                       borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: Colors.grey[300]!),
                     ),
                     child: TextField(
                       controller: _messageController,
                       focusNode: _focusNode,
                       decoration: InputDecoration(
-                        hintText: 'Type something...',
+                        hintText: 'Type your message...',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
                       ),
                       textInputAction: TextInputAction.send,
                       onSubmitted: _sendMessage,
                     ),
                   ),
                 ),
-                SizedBox(width: 8),
-                Material(
-                  color: blueColor,
-                  borderRadius: BorderRadius.circular(24),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: () => _sendMessage(_messageController.text),
-                    child: Container(
-                      padding: EdgeInsets.all(10),
-                      child: Icon(Icons.arrow_forward, color: Colors.white),
-                    ),
+                SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: blueColor,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    onPressed:
+                        _isSendingMessage
+                            ? null
+                            : () => _sendMessage(_messageController.text),
+                    icon:
+                        _isSendingMessage
+                            ? SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                            : Icon(Icons.send, color: Colors.white),
                   ),
                 ),
               ],
@@ -362,36 +470,39 @@ class _ChatbotScreenState extends State<ChatbotScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              margin: EdgeInsets.only(right: 8),
-              padding: EdgeInsets.all(8),
+              margin: EdgeInsets.only(right: 8, top: 4),
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: blueColor,
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.smart_toy, color: blueColor),
+              child: Center(
+                child: Icon(Icons.smart_toy, color: Colors.white, size: 20),
+              ),
             ),
             Flexible(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    margin: EdgeInsets.only(
-                      right: 80,
-                      bottom:
-                          (message.fileUrl != null ||
-                                  message.suggestions != null)
-                              ? 8
-                              : 12,
-                    ),
+                    margin: EdgeInsets.only(right: 80, bottom: 8),
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: blueColor.withOpacity(
-                        0.2,
-                      ), // Light blue from screenshot
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
                     ),
                     child: Text(message.text, style: TextStyle(fontSize: 16)),
                   ),
+
+                  // Show file if available
                   if (message.fileUrl != null)
                     Container(
                       margin: EdgeInsets.only(
@@ -426,29 +537,13 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                             ),
                           ),
                           SizedBox(width: 8),
-                          Container(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: blueColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              "Download",
-                              style: TextStyle(
-                                color: blueColor,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                          Icon(Icons.download, color: blueColor, size: 20),
                         ],
                       ),
                     ),
-                  if (message.suggestions != null &&
-                      message.suggestions!.isNotEmpty)
+
+                  // Show suggestions if available
+                  if (message.suggestions != null)
                     Container(
                       margin: EdgeInsets.only(right: 80, bottom: 12),
                       child: Wrap(
@@ -457,14 +552,17 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                         children:
                             message.suggestions!.map((suggestion) {
                               return GestureDetector(
-                                onTap: () => _useSuggestion(suggestion),
+                                onTap: () {
+                                  _messageController.text = suggestion;
+                                  _sendMessage(suggestion);
+                                },
                                 child: Container(
                                   padding: EdgeInsets.symmetric(
                                     horizontal: 12,
                                     vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: blueColor.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(16),
                                     border: Border.all(
                                       color: blueColor.withOpacity(0.3),
@@ -475,6 +573,7 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                                     style: TextStyle(
                                       color: blueColor,
                                       fontWeight: FontWeight.w500,
+                                      fontSize: 14,
                                     ),
                                   ),
                                 ),
