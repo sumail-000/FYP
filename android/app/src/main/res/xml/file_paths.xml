@@ -5,4 +5,8 @@
     <cache-path name="cache" path="."/>
     <external-cache-path name="external_cache" path="."/>
     <files-path name="files" path="."/>
+    <root-path name="root" path="." />
+    <external-path name="downloads" path="Download" />
+    <external-files-path name="app_documents" path="files/Documents" />
+    <external-files-path name="app_downloads" path="Download" />
 </paths> 

@@ -9,6 +9,7 @@ import '../profile/profile_screen.dart';
 import '../chatroom/chatroom_screen.dart';
 import '../services/presence_service.dart';
 import '../chatbot/chatbot_screen.dart';
+import '../services/activity_points_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -22,6 +23,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String? _profileImageUrl;
   int _selectedIndex = 0;
+  bool _isStreakMessageShown = false;
 
   // Define the exact orange color
   final Color orangeColor = Color(0xFFf06517);
@@ -48,6 +50,82 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // Update user presence
     _updatePresence(true);
+    
+    // Check and show streak notification if needed
+    // Delay slightly to ensure dashboard is fully loaded
+    Future.delayed(Duration(milliseconds: 800), () {
+      _checkAndShowStreakNotification();
+    });
+  }
+
+  // Check if there's a streak notification to show and display it
+  Future<void> _checkAndShowStreakNotification() async {
+    try {
+      final user = _authService.currentUser;
+      if (user == null || _isStreakMessageShown) return;
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      
+      if (!userDoc.exists) return;
+      
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final lastStreakCheck = userData['lastStreakCheck'] as Map<String, dynamic>?;
+      
+      if (lastStreakCheck != null && lastStreakCheck['shown'] == false) {
+        final currentStreak = lastStreakCheck['currentStreak'] as int;
+        final pointsAwarded = lastStreakCheck['pointsAwarded'] as int;
+        
+        // Only show if we have a meaningful streak (more than 1 day)
+        if (currentStreak > 1 && mounted && !_isStreakMessageShown) {
+          setState(() => _isStreakMessageShown = true);
+          
+          // Show a subtle notification at the bottom
+          final streakMessage = 'Login streak: $currentStreak days! +$pointsAwarded point';
+          
+          // Use a less intrusive notification that appears at the bottom
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.local_fire_department, color: Colors.orange, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    streakMessage,
+                    style: TextStyle(
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              duration: Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.only(bottom: 20, left: 20, right: 20),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+              backgroundColor: Colors.black87,
+            ),
+          );
+          
+          // Mark as shown in the database
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .update({
+            'lastStreakCheck.shown': true
+          });
+          
+          developer.log('Displayed streak notification: Streak=$currentStreak', name: 'Dashboard');
+        }
+      }
+    } catch (e) {
+      developer.log('Error checking streak notification: $e', name: 'Dashboard');
+    }
   }
 
   @override
@@ -1002,8 +1080,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     return GestureDetector(
       onTap: () {
-        // Open document on tap
-        DashboardService.openDocument(context, fileUrl, fileName);
+        // Show document details instead of opening the document
+        _showDocumentDetails(document);
       },
       child: Container(
         decoration: BoxDecoration(
@@ -1198,23 +1276,40 @@ class _DashboardScreenState extends State<DashboardScreen>
                     ],
                   ),
 
-                  // Download button with improved styling
-                  Container(
-                    padding: EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: orangeColor.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: InkWell(
-                      onTap: () {
-                        DashboardService.openDocument(
-                          context,
-                          fileUrl,
-                          fileName,
-                        );
-                      },
-                      child: Icon(Icons.download, size: 14, color: orangeColor),
-                    ),
+                  // Action buttons (comment and rating)
+                  Row(
+                    children: [
+                      // Comment button
+                      Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: blueColor.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: InkWell(
+                          onTap: () {
+                            _showCommentDialog(document);
+                          },
+                          child: Icon(Icons.comment, size: 14, color: blueColor),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      
+                      // Rating button
+                      Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: orangeColor.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: InkWell(
+                          onTap: () {
+                            _showRatingDialog(document);
+                          },
+                          child: Icon(Icons.star, size: 14, color: orangeColor),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1270,11 +1365,22 @@ class _DashboardScreenState extends State<DashboardScreen>
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(15),
             ),
-            elevation: 5,
+            elevation: 10,
             child: Container(
               width: double.maxFinite,
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.7,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
+                  ),
+                ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1357,20 +1463,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                             // File details as a card
                             Container(
                               padding: EdgeInsets.all(12),
+                              margin: EdgeInsets.symmetric(vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.grey[300]!,
+                                  width: 1,
+                                ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.grey.withOpacity(0.05),
-                                    blurRadius: 5,
+                                    color: Colors.black.withOpacity(0.05),
+                                    blurRadius: 4,
                                     offset: Offset(0, 2),
                                   ),
                                 ],
-                                border: Border.all(
-                                  color: Colors.grey.withOpacity(0.2),
-                                  width: 1,
-                                ),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1434,20 +1541,21 @@ class _DashboardScreenState extends State<DashboardScreen>
                             // Uploader card with profile
                             Container(
                               padding: EdgeInsets.all(12),
+                              margin: EdgeInsets.symmetric(vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.grey[300]!,
+                                  width: 1,
+                                ),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 5,
+                                    blurRadius: 4,
                                     offset: Offset(0, 2),
                                   ),
                                 ],
-                                border: Border.all(
-                                  color: blueColor.withOpacity(0.2),
-                                  width: 1,
-                                ),
                               ),
                               child: FutureBuilder<Map<String, dynamic>?>(
                                 future: _getUserProfileData(uploaderId),
@@ -1595,14 +1703,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.grey[50],
+                      color: Colors.white,
                       borderRadius: BorderRadius.only(
                         bottomLeft: Radius.circular(15),
                         bottomRight: Radius.circular(15),
                       ),
                       border: Border(
                         top: BorderSide(
-                          color: Colors.grey.withOpacity(0.2),
+                          color: Colors.grey[200]!,
                           width: 1,
                         ),
                       ),
@@ -1627,26 +1735,46 @@ class _DashboardScreenState extends State<DashboardScreen>
                           ),
                         ),
 
-                        // Download button
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            DashboardService.openDocument(
-                              context,
-                              fileUrl,
-                              fileName,
-                            );
-                          },
-                          icon: Icon(Icons.download, size: 16),
-                          label: Text('Download'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: orangeColor,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
+                        // Action buttons
+                        Row(
+                          children: [
+                            // Comment button
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _showCommentDialog(document);
+                              },
+                              icon: Icon(Icons.comment, size: 16),
+                              label: Text('Comment'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: blueColor,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
                             ),
-                          ),
+                            SizedBox(width: 8),
+                            
+                            // Rating button
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _showRatingDialog(document);
+                              },
+                              icon: Icon(Icons.star, size: 16),
+                              label: Text('Rate'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: orangeColor,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -1790,6 +1918,822 @@ class _DashboardScreenState extends State<DashboardScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to send request')));
+    }
+  }
+
+  // Show comment dialog
+  void _showCommentDialog(Map<String, dynamic> document) async {
+    final TextEditingController commentController = TextEditingController();
+    final documentId = document['id'];
+    final fileName = document['fileName'] ?? 'Unnamed Document';
+    
+    // Show loading dialog while fetching comments
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: CircularProgressIndicator(color: blueColor),
+      ),
+    );
+    
+    // Fetch existing comments
+    List<Map<String, dynamic>> comments = [];
+    try {
+      final commentsSnapshot = await FirebaseFirestore.instance
+          .collection('documents')
+          .doc(documentId)
+          .collection('comments')
+          .orderBy('createdAt', descending: true)
+          .get();
+          
+      for (var doc in commentsSnapshot.docs) {
+        final data = doc.data();
+        comments.add({
+          'id': doc.id,
+          'userId': data['userId'] ?? '',
+          'userName': data['userName'] ?? 'Anonymous',
+          'userProfileUrl': data['userProfileUrl'],
+          'comment': data['comment'] ?? '',
+          'createdAt': data['createdAt'] as Timestamp?,
+        });
+      }
+      
+      // Close loading dialog
+      Navigator.pop(context);
+    } catch (e) {
+      // Close loading dialog
+      Navigator.pop(context);
+      developer.log('Error fetching comments: $e', name: 'Dashboard');
+    }
+    
+    // Show comments dialog
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        elevation: 10,
+        child: Container(
+          width: double.maxFinite,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with document title
+              Container(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: blueColor,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(15),
+                    topRight: Radius.circular(15),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Comments - $fileName',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '${comments.length} ${comments.length == 1 ? 'comment' : 'comments'}',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.8),
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Comments list
+              Flexible(
+                child: comments.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.comment_outlined,
+                                size: 48,
+                                color: Colors.grey[400],
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'No comments yet',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Be the first to comment!',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: EdgeInsets.all(16),
+                        itemCount: comments.length,
+                        separatorBuilder: (context, index) => Divider(),
+                        itemBuilder: (context, index) {
+                          final comment = comments[index];
+                          final userName = comment['userName'];
+                          final userComment = comment['comment'];
+                          final profileUrl = comment['userProfileUrl'];
+                          final createdAt = comment['createdAt'];
+                          
+                          // Format timestamp
+                          String timeAgo = 'Recently';
+                          if (createdAt != null) {
+                            final now = DateTime.now();
+                            final difference = now.difference(createdAt.toDate());
+                            
+                            if (difference.inDays > 0) {
+                              timeAgo = '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
+                            } else if (difference.inHours > 0) {
+                              timeAgo = '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
+                            } else if (difference.inMinutes > 0) {
+                              timeAgo = '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
+                            } else {
+                              timeAgo = 'Just now';
+                            }
+                          }
+                          
+                          return Container(
+                            padding: EdgeInsets.all(12),
+                            margin: EdgeInsets.symmetric(vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.grey[200]!,
+                                width: 1,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.05),
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // User info row
+                                Row(
+                                  children: [
+                                    // User avatar
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: blueColor.withOpacity(0.1),
+                                        border: Border.all(
+                                          color: blueColor.withOpacity(0.3),
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: profileUrl != null
+                                          ? ClipOval(
+                                              child: Image.network(
+                                                profileUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  return Icon(
+                                                    Icons.person,
+                                                    color: blueColor.withOpacity(0.7),
+                                                    size: 20,
+                                                  );
+                                                },
+                                              ),
+                                            )
+                                          : Icon(
+                                              Icons.person,
+                                              color: blueColor.withOpacity(0.7),
+                                              size: 20,
+                                            ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    
+                                    // Username and time
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            userName,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          Text(
+                                            timeAgo,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                
+                                // Comment text
+                                Padding(
+                                  padding: EdgeInsets.only(left: 44, top: 8),
+                                  child: Text(
+                                    userComment,
+                                    style: TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              
+              // Comment input section
+              Container(
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.grey[300]!,
+                      width: 1,
+                    ),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 4,
+                      spreadRadius: -2,
+                      offset: Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: commentController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        hintText: 'Write your comment here...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: blueColor, width: 2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text('Cancel'),
+                        ),
+                        SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: blueColor,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.send, size: 16),
+                              SizedBox(width: 4),
+                              Text('Comment'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result == true && commentController.text.isNotEmpty) {
+      try {
+        final currentUser = _authService.currentUser;
+        if (currentUser == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('You need to be logged in to comment')),
+          );
+          return;
+        }
+
+        // Get current user data
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUser.uid)
+            .get();
+        final userData = userDoc.data() as Map<String, dynamic>?;
+
+        // Add comment to Firestore
+        await FirebaseFirestore.instance
+            .collection('documents')
+            .doc(documentId)
+            .collection('comments')
+            .add({
+              'userId': currentUser.uid,
+              'userName': userData?['name'] ?? currentUser.displayName ?? 'User',
+              'userProfileUrl': userData?['profileImageUrl'],
+              'comment': commentController.text,
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+
+        // Award points for commenting
+        await ActivityPointsService().awardPoints(
+          currentUser.uid,
+          2,
+          'Commented on a document',
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Comment added successfully')),
+        );
+      } catch (e) {
+        developer.log('Error adding comment: $e', name: 'Dashboard');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add comment')),
+        );
+      }
+    }
+  }
+
+  // Show rating dialog
+  void _showRatingDialog(Map<String, dynamic> document) async {
+    final documentId = document['id'];
+    final fileName = document['fileName'] ?? 'Unnamed Document';
+    double rating = 3.0; // Default rating
+    double averageRating = 0.0;
+    int ratingCount = 0;
+    
+    // Show loading dialog while fetching ratings
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: CircularProgressIndicator(color: orangeColor),
+      ),
+    );
+    
+    // Fetch document to get average rating
+    try {
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection('documents')
+          .doc(documentId)
+          .get();
+          
+      if (docSnapshot.exists) {
+        final data = docSnapshot.data() as Map<String, dynamic>;
+        averageRating = (data['averageRating'] as num?)?.toDouble() ?? 0.0;
+        ratingCount = (data['ratingCount'] as num?)?.toInt() ?? 0;
+      }
+      
+      // Check if current user has already rated
+      final currentUser = _authService.currentUser;
+      if (currentUser != null) {
+        final userRatingDoc = await FirebaseFirestore.instance
+            .collection('documents')
+            .doc(documentId)
+            .collection('ratings')
+            .doc(currentUser.uid)
+            .get();
+            
+        if (userRatingDoc.exists) {
+          final data = userRatingDoc.data() as Map<String, dynamic>;
+          rating = (data['rating'] as num?)?.toDouble() ?? 3.0;
+        }
+      }
+      
+      // Close loading dialog
+      Navigator.pop(context);
+    } catch (e) {
+      // Close loading dialog
+      Navigator.pop(context);
+      developer.log('Error fetching ratings: $e', name: 'Dashboard');
+    }
+    
+    // Show rating dialog
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        elevation: 10,
+        child: Container(
+          width: double.maxFinite,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.5,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header with document title
+              Container(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: orangeColor,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(15),
+                    topRight: Radius.circular(15),
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    'Rate Document',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+              
+              // Document info - make scrollable to handle overflow
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Text(
+                          fileName,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        
+                        SizedBox(height: 24),
+                        
+                        // Current average rating
+                        if (ratingCount > 0) ...[
+                          Container(
+                            padding: EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: Colors.grey[300]!,
+                                width: 1,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.08),
+                                  blurRadius: 6,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                // Average rating with stars
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Average Rating: ',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.grey[700],
+                                      ),
+                                    ),
+                                    Text(
+                                      averageRating.toStringAsFixed(1),
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: orangeColor,
+                                      ),
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      '/5',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                
+                                SizedBox(height: 8),
+                                
+                                // Visual star representation
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: List.generate(5, (index) {
+                                    // Show full, half or empty star based on rating
+                                    IconData iconData;
+                                    if (index + 0.5 < averageRating) {
+                                      iconData = Icons.star;
+                                    } else if (index < averageRating) {
+                                      iconData = Icons.star_half;
+                                    } else {
+                                      iconData = Icons.star_border;
+                                    }
+                                    
+                                    return Icon(
+                                      iconData,
+                                      color: orangeColor,
+                                      size: 20,
+                                    );
+                                  }),
+                                ),
+                                
+                                SizedBox(height: 8),
+                                
+                                // Total number of ratings
+                                Text(
+                                  'Based on $ratingCount ${ratingCount == 1 ? 'rating' : 'ratings'}',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[600],
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 20),
+                        ],
+                        
+                        Text(
+                          'How would you rate this document?',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Colors.grey[800],
+                          ),
+                        ),
+                        
+                        // Show previous rating message if user has rated before
+                        FutureBuilder<DocumentSnapshot>(
+                          future: _authService.currentUser != null 
+                              ? FirebaseFirestore.instance
+                                  .collection('documents')
+                                  .doc(documentId)
+                                  .collection('ratings')
+                                  .doc(_authService.currentUser!.uid)
+                                  .get()
+                              : null,
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData && snapshot.data!.exists) {
+                              final previousRating = (snapshot.data!.data() as Map<String, dynamic>)['rating'] as double?;
+                              if (previousRating != null) {
+                                return Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    'Your previous rating: ${previousRating.toStringAsFixed(1)}',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                            return SizedBox(height: 8);
+                          },
+                        ),
+                        
+                        SizedBox(height: 16),
+                        
+                        // Rating stars - fix overflow with Wrap
+                        StatefulBuilder(
+                          builder: (context, setState) {
+                            return Wrap(
+                              alignment: WrapAlignment.center,
+                              children: List.generate(5, (index) {
+                                return IconButton(
+                                  icon: Icon(
+                                    index < rating ? Icons.star : Icons.star_border,
+                                    color: orangeColor,
+                                    size: 32,
+                                  ),
+                                  padding: EdgeInsets.all(4),
+                                  constraints: BoxConstraints(),
+                                  onPressed: () {
+                                    setState(() {
+                                      rating = index + 1.0;
+                                    });
+                                  },
+                                );
+                              }),
+                            );
+                          },
+                        ),
+                        
+                        SizedBox(height: 8),
+                        
+                        // Rating description
+                        StatefulBuilder(
+                          builder: (context, setState) {
+                            String ratingText = '';
+                            if (rating <= 1) {
+                              ratingText = 'Poor';
+                            } else if (rating <= 2) {
+                              ratingText = 'Fair';
+                            } else if (rating <= 3) {
+                              ratingText = 'Good';
+                            } else if (rating <= 4) {
+                              ratingText = 'Very Good';
+                            } else {
+                              ratingText = 'Excellent';
+                            }
+                            
+                            return Text(
+                              ratingText,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: orangeColor,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Action buttons
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(15),
+                    bottomRight: Radius.circular(15),
+                  ),
+                  border: Border(
+                    top: BorderSide(
+                      color: Colors.grey[200]!,
+                      width: 1,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: orangeColor,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.star, size: 16),
+                          SizedBox(width: 4),
+                          Text('Submit'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result == true) {
+      try {
+        final currentUser = _authService.currentUser;
+        if (currentUser == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('You need to be logged in to rate')),
+          );
+          return;
+        }
+
+        // Add rating to Firestore
+        await FirebaseFirestore.instance
+            .collection('documents')
+            .doc(documentId)
+            .collection('ratings')
+            .doc(currentUser.uid) // One rating per user
+            .set({
+              'userId': currentUser.uid,
+              'rating': rating,
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+
+        // Update average rating in document
+        final ratingsSnapshot = await FirebaseFirestore.instance
+            .collection('documents')
+            .doc(documentId)
+            .collection('ratings')
+            .get();
+            
+        if (ratingsSnapshot.docs.isNotEmpty) {
+          double totalRating = 0;
+          for (var doc in ratingsSnapshot.docs) {
+            totalRating += doc.data()['rating'] as double;
+          }
+          double averageRating = totalRating / ratingsSnapshot.docs.length;
+          
+          await FirebaseFirestore.instance
+              .collection('documents')
+              .doc(documentId)
+              .update({
+                'averageRating': averageRating,
+                'ratingCount': ratingsSnapshot.docs.length,
+              });
+        }
+
+        // Award points for rating
+        await ActivityPointsService().awardPoints(
+          currentUser.uid,
+          1,
+          'Rated a document',
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Rating submitted successfully')),
+        );
+      } catch (e) {
+        developer.log('Error adding rating: $e', name: 'Dashboard');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to submit rating')),
+        );
+      }
     }
   }
 

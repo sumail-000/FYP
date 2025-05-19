@@ -2,11 +2,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../model/user_model.dart';
+import '../services/activity_points_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ActivityPointsService _activityPointsService = ActivityPointsService();
   
   // Get current user
   User? get currentUser => _auth.currentUser;
@@ -85,6 +87,20 @@ class AuthService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     
+    // If profile is complete, award activity points
+    if (hasValidUsername) {
+      try {
+        // Award points for profile completion
+        await _activityPointsService.awardProfileCompletionPoints();
+        
+        // Check if user has a university email and award points if applicable
+        await _activityPointsService.checkAndAwardUniversityEmailPoints();
+      } catch (e) {
+        print('Error awarding activity points: $e');
+        // Don't throw the error to avoid disrupting the user flow
+      }
+    }
+    
     // If username is invalid, throw an exception to trigger the username input screen
     if (!hasValidUsername) {
       throw 'Valid username required';
@@ -101,6 +117,14 @@ class AuthService {
       
       // Check if user document exists, if not create one
       await _createUserDocumentIfNotExists(userCredential.user);
+      
+      // Ensure user gets activity points for existing account
+      try {
+        await _validateActivityPoints(userCredential.user);
+      } catch (e) {
+        print('Error validating activity points during login: $e');
+        // Don't throw to avoid disrupting login flow
+      }
       
       return userCredential;
     } on FirebaseAuthException catch (e) {
@@ -128,6 +152,66 @@ class AuthService {
     }
   }
 
+  // Helper method to validate activity points
+  Future<void> _validateActivityPoints(User? user) async {
+    if (user == null) return;
+    
+    // Get profile completion status
+    bool profileCompleted = await isProfileComplete();
+    
+    // Force update points for users who completed their profile
+    if (profileCompleted) {
+      // First check user document
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
+      if (!userDoc.exists) return;
+      
+      // Check if user has activity points document
+      DocumentSnapshot pointsDoc = await _firestore.collection('activity_points').doc(user.uid).get();
+      
+      // Get current activity points or create
+      if (!pointsDoc.exists) {
+        print("Creating activity points for existing user: ${user.uid}");
+        // Award login points
+        await _activityPointsService.awardFirstLoginPoints();
+        
+        // Award profile completion 
+        await _activityPointsService.awardProfileCompletionPoints();
+        
+        // Check for university email
+        await _activityPointsService.checkAndAwardUniversityEmailPoints();
+      } else {
+        Map<String, dynamic> pointsData = pointsDoc.data() as Map<String, dynamic>;
+        
+        // Check if all one-time activities are complete
+        Map<String, dynamic>? oneTimeActivities = pointsData['oneTimeActivities'] as Map<String, dynamic>?;
+        
+        if (oneTimeActivities == null || oneTimeActivities.isEmpty) {
+          // Missing activities map, award points
+          print("Fixing missing oneTimeActivities for user: ${user.uid}");
+          await _activityPointsService.awardFirstLoginPoints();
+          await _activityPointsService.awardProfileCompletionPoints();
+          await _activityPointsService.checkAndAwardUniversityEmailPoints();
+        } else {
+          // Check individual activities
+          if (oneTimeActivities['first_login'] != true) {
+            print("Awarding missing first login points");
+            await _activityPointsService.awardFirstLoginPoints();
+          }
+          
+          if (oneTimeActivities['profile_completion'] != true) {
+            print("Awarding missing profile completion points");
+            await _activityPointsService.awardProfileCompletionPoints();
+          }
+          
+          // Only check university email if not already awarded
+          if (oneTimeActivities['university_email_verification'] != true) {
+            await _activityPointsService.checkAndAwardUniversityEmailPoints();
+          }
+        }
+      }
+    }
+  }
+
   // Register with email and password
   Future<UserCredential?> registerWithEmailPassword(String email, String password, {String? username}) async {
     try {
@@ -138,6 +222,17 @@ class AuthService {
       
       // Create user document in Firestore with the username if provided
       await _createUserDocumentIfNotExists(userCredential.user, username: username);
+      
+      // Award points for first signup
+      try {
+        await _activityPointsService.awardFirstLoginPoints();
+        
+        // Check if user has a university email and award points if applicable
+        await _activityPointsService.checkAndAwardUniversityEmailPoints();
+      } catch (e) {
+        print('Error awarding activity points: $e');
+        // Don't throw the error to avoid disrupting the user flow
+      }
       
       return userCredential;
     } on FirebaseAuthException catch (e) {
@@ -178,6 +273,29 @@ class AuthService {
       
       // Create user document in Firestore
       await _createUserDocumentIfNotExists(userCredential.user);
+      
+      // Check if this is a new user (first time sign in)
+      bool isNewUser = userCredential.additionalUserInfo?.isNewUser ?? false;
+      
+      if (isNewUser) {
+        // Award points for first signup if this is a new user
+        try {
+          await _activityPointsService.awardFirstLoginPoints();
+          
+          // Check if user has a university email and award points if applicable
+          await _activityPointsService.checkAndAwardUniversityEmailPoints();
+        } catch (e) {
+          print('Error awarding activity points: $e');
+          // Don't throw the error to avoid disrupting the user flow
+        }
+      } else {
+        // Existing user - ensure they have activity points
+        try {
+          await _validateActivityPoints(userCredential.user);
+        } catch (e) {
+          print('Error validating activity points during Google sign in: $e');
+        }
+      }
       
       return userCredential;
     } on FirebaseAuthException catch (e) {

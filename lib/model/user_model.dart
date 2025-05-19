@@ -9,6 +9,7 @@ class UserModel {
   final String? university;
   final UserRole role;
   final bool isProfileComplete;
+  final int activityPoints;
   
   UserModel({
     required this.uid,
@@ -17,6 +18,7 @@ class UserModel {
     this.university,
     this.role = UserRole.undefined,
     this.isProfileComplete = false,
+    this.activityPoints = 0,
   });
   
   factory UserModel.fromMap(Map<String, dynamic> map, String documentId) {
@@ -36,6 +38,7 @@ class UserModel {
       university: map['university'],
       role: parseRole(map['role']),
       isProfileComplete: map['isProfileComplete'] ?? false,
+      activityPoints: map['activityPoints'] ?? 0,
     );
   }
   
@@ -51,6 +54,7 @@ class UserModel {
       'university': university,
       'role': role.toString().split('.').last,
       'isProfileComplete': isProfileComplete,
+      'activityPoints': activityPoints,
     };
   }
   
@@ -61,6 +65,7 @@ class UserModel {
     String? university,
     UserRole? role,
     bool? isProfileComplete,
+    int? activityPoints,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -69,6 +74,7 @@ class UserModel {
       university: university ?? this.university,
       role: role ?? this.role,
       isProfileComplete: isProfileComplete ?? this.isProfileComplete,
+      activityPoints: activityPoints ?? this.activityPoints,
     );
   }
 } 

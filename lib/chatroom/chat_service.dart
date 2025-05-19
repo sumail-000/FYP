@@ -18,7 +18,7 @@ class ChatService {
         .doc(_generalChatRoomId)
         .collection(_messagesCollection)
         .orderBy('timestamp', descending: false)
-        .limit(100)
+        .limitToLast(100)
         .snapshots()
         .map((snapshot) {
           return snapshot.docs.map((doc) => ChatMessage.fromFirestore(doc)).toList();

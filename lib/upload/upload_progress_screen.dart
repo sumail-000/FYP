@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:path/path.dart' as path;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../auth/auth_service.dart';
+import '../services/activity_points_service.dart';
 
 class UploadProgressScreen extends StatefulWidget {
   final List<UploadTask> uploadTasks;
@@ -907,6 +908,10 @@ class UploadTask {
       
       // Save to Firestore
       await documentsCollection.add(documentData);
+      
+      // Award activity points for document upload
+      final activityPointsService = ActivityPointsService();
+      await activityPointsService.awardResourceUploadPoints();
       
       print('Document metadata saved to Firestore for: ${metadata['displayName'] ?? fileName}');
     } catch (e) {

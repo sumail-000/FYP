@@ -5,6 +5,168 @@ import '../auth/auth_service.dart';
 import 'chat_service.dart';
 import 'chat_message.dart';
 import 'package:intl/intl.dart';
+import '../profiles/user_profile_view_screen.dart';
+import '../services/presence_service.dart';
+
+// ProfileImage widget for consistent profile image handling
+class ProfileImage extends StatelessWidget {
+  final String? imageUrl;
+  final String fallbackText;
+  final double size;
+  final Color backgroundColor;
+  final Color borderColor;
+  final double borderWidth;
+  
+  const ProfileImage({
+    required this.imageUrl,
+    required this.fallbackText,
+    this.size = 48.0,
+    this.backgroundColor = Colors.white,
+    this.borderColor = Colors.transparent,
+    this.borderWidth = 0.0,
+    Key? key,
+  }) : super(key: key);
+  
+  @override
+  Widget build(BuildContext context) {
+    final Color blueColor = const Color(0xFF2D6DA8);
+    
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: borderColor,
+          width: borderWidth,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 3,
+            spreadRadius: 1,
+            offset: Offset(0, 1),
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: imageUrl != null && imageUrl!.isNotEmpty
+            ? Image.network(
+                imageUrl!,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: SizedBox(
+                      width: size / 3,
+                      height: size / 3,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.grey[400],
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded / 
+                              loadingProgress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Center(
+                    child: Text(
+                      fallbackText.isNotEmpty ? fallbackText[0].toUpperCase() : '?',
+                      style: TextStyle(
+                        color: blueColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: size / 2.5,
+                      ),
+                    ),
+                  );
+                },
+              )
+            : Center(
+                child: Text(
+                  fallbackText.isNotEmpty ? fallbackText[0].toUpperCase() : '?',
+                  style: TextStyle(
+                    color: blueColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: size / 2.5,
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+// StreamingProfileImage that listens to Firestore for real-time updates
+class StreamingProfileImage extends StatelessWidget {
+  final String userId;
+  final String fallbackName;
+  final double size;
+  final Color backgroundColor;
+  final Color borderColor;
+  final double borderWidth;
+  
+  const StreamingProfileImage({
+    required this.userId,
+    required this.fallbackName,
+    this.size = 48.0,
+    this.backgroundColor = Colors.white,
+    this.borderColor = Colors.transparent,
+    this.borderWidth = 0.0,
+    Key? key,
+  }) : super(key: key);
+  
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
+      builder: (context, snapshot) {
+        String? profileUrl;
+        String name = fallbackName;
+        
+        if (snapshot.hasData && snapshot.data != null && snapshot.data!.exists) {
+          final userData = snapshot.data!.data() as Map<String, dynamic>?;
+          profileUrl = userData?['profileImageUrl'];
+          name = userData?['name'] ?? fallbackName;
+          
+          // If profile not found in users collection, check profiles collection
+          if (profileUrl == null || profileUrl.isEmpty) {
+            return StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance.collection('profiles').doc(userId).snapshots(),
+              builder: (context, profileSnapshot) {
+                if (profileSnapshot.hasData && profileSnapshot.data != null && profileSnapshot.data!.exists) {
+                  final profileData = profileSnapshot.data!.data() as Map<String, dynamic>?;
+                  profileUrl = profileData?['secureUrl'];
+                }
+                
+                return ProfileImage(
+                  imageUrl: profileUrl,
+                  fallbackText: name,
+                  size: size,
+                  backgroundColor: backgroundColor,
+                  borderColor: borderColor,
+                  borderWidth: borderWidth,
+                );
+              },
+            );
+          }
+        }
+        
+        return ProfileImage(
+          imageUrl: profileUrl,
+          fallbackText: name,
+          size: size,
+          backgroundColor: backgroundColor,
+          borderColor: borderColor,
+          borderWidth: borderWidth,
+        );
+      },
+    );
+  }
+}
 
 class ChatRoomScreen extends StatefulWidget {
   const ChatRoomScreen({Key? key}) : super(key: key);
@@ -16,6 +178,8 @@ class ChatRoomScreen extends StatefulWidget {
 class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   final ChatService _chatService = ChatService();
+  final PresenceService _presenceService = PresenceService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
@@ -37,6 +201,12 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
     _loadOnlineUsersCount();
     _updateUserPresence();
     _setupKeyboardListeners();
+    
+    // Add a post-frame callback to immediately jump to bottom without animation
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottom();
+    });
+    
     developer.log('ChatRoomScreen initialized', name: 'ChatRoom');
   }
 
@@ -70,10 +240,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
 
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        0.0,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
+      _scrollController.jumpTo(
+        _scrollController.position.maxScrollExtent,
       );
     }
   }
@@ -435,9 +603,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
                       );
                     }
 
+                    // Add a post-frame callback to scroll to bottom once the messages are loaded
+                    // This ensures we scroll to the bottom when new data comes in
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _scrollToBottom();
+                    });
+
                     return ListView.builder(
                       controller: _scrollController,
-                      reverse: false, // Change to false to show newest at bottom
+                      reverse: false, // Keep false to show newest at bottom
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       itemCount: displayMessages.length,
                       itemBuilder: (context, index) {
@@ -579,6 +753,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
   Widget _buildOnlineUsersDrawer() {
     return Drawer(
       width: MediaQuery.of(context).size.width * 0.75,
+      backgroundColor: Colors.white,
       child: Column(
         children: [
           Container(
@@ -641,162 +816,132 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
             ),
           ),
           Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _chatService.getOnlineUsersStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                }
+            child: Container(
+              color: Colors.white,
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: _chatService.getOnlineUsersStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
+                  }
 
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('Error loading online users'),
-                  );
-                }
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Text('Error loading online users'),
+                    );
+                  }
 
-                final onlineUsers = snapshot.data ?? [];
+                  final onlineUsers = snapshot.data ?? [];
 
-                if (onlineUsers.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No one else is online',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
+                  if (onlineUsers.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.people_outline,
+                            size: 64,
+                            color: Colors.grey[400],
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: onlineUsers.length,
-                  itemBuilder: (context, index) {
-                    final user = onlineUsers[index];
-                    final isCurrentUser = user['userId'] == _authService.currentUser?.uid;
-                    
-                    return Card(
-                      elevation: 0,
-                      color: isCurrentUser ? orangeColor.withOpacity(0.1) : Colors.white,
-                      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: isCurrentUser ? orangeColor.withOpacity(0.3) : Colors.grey.withOpacity(0.2),
-                          width: 1,
-                        ),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        leading: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: blueColor.withOpacity(0.1),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.greenAccent,
-                              width: 2,
+                          const SizedBox(height: 16),
+                          Text(
+                            'No one else is online',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
                             ),
                           ),
-                          child: user['profileUrl'] != null
-                              ? ClipOval(
-                                  child: Image.network(
-                                    user['profileUrl'],
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Center(
-                                        child: Text(
-                                          user['userName'][0].toUpperCase(),
-                                          style: TextStyle(
-                                            color: blueColor,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 18,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                )
-                              : Center(
-                                  child: Text(
-                                    user['userName'][0].toUpperCase(),
-                                    style: TextStyle(
-                      color: blueColor,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                ),
-                        ),
-                        title: Text(
-                          user['userName'],
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: isCurrentUser ? orangeColor : Colors.black87,
-                          ),
-                        ),
-                        subtitle: Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              margin: const EdgeInsets.only(right: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.greenAccent,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            Text(
-                              isCurrentUser ? 'You (Online)' : 'Online',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                        trailing: isCurrentUser
-                            ? Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: orangeColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: orangeColor.withOpacity(0.3),
-                                  ),
-                                ),
-                                child: Text(
-                                  'You',
-                                  style: TextStyle(
-                                    color: orangeColor,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              )
-                            : null,
+                        ],
                       ),
                     );
-                  },
-                );
-              },
+                  }
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.all(8),
+                    itemCount: onlineUsers.length,
+                    itemBuilder: (context, index) {
+                      final user = onlineUsers[index];
+                      final isCurrentUser = user['userId'] == _authService.currentUser?.uid;
+                      
+                      return Card(
+                        elevation: 1,
+                        color: isCurrentUser ? orangeColor.withOpacity(0.1) : Colors.white,
+                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: isCurrentUser ? orangeColor.withOpacity(0.3) : Colors.grey[300]!,
+                            width: 1,
+                          ),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: StreamingProfileImage(
+                            userId: user['userId'],
+                            fallbackName: user['userName'],
+                            size: 48,
+                            backgroundColor: blueColor.withOpacity(0.1),
+                            borderColor: Colors.green,
+                            borderWidth: 2,
+                          ),
+                          title: Text(
+                            user['userName'],
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isCurrentUser ? orangeColor : Colors.black87,
+                            ),
+                          ),
+                          subtitle: Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              Text(
+                                isCurrentUser ? 'You (Online)' : 'Online',
+                                style: TextStyle(
+                                  color: Colors.grey[700],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: isCurrentUser
+                              ? Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: orangeColor.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: orangeColor.withOpacity(0.3),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'You',
+                                    style: TextStyle(
+                                      color: orangeColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
           ),
           Container(
@@ -956,46 +1101,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
               },
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: blueColor.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: blueColor.withOpacity(0.1), width: 2),
+                child: StreamingProfileImage(
+                  userId: message.senderId,
+                  fallbackName: message.senderName,
+                  size: 36,
+                  backgroundColor: blueColor.withOpacity(0.2),
+                  borderColor: blueColor.withOpacity(0.1),
+                  borderWidth: 2,
                 ),
-                child: message.senderProfileUrl != null
-                    ? ClipOval(
-                        child: Image.network(
-                          message.senderProfileUrl!,
-                          fit: BoxFit.cover,
-                          width: 36,
-                          height: 36,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Center(
-                              child: Text(
-                                message.senderName.isNotEmpty
-                                    ? message.senderName[0].toUpperCase()
-                                    : '?',
-                                style: TextStyle(
-                                  color: blueColor,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                    : Center(
-                        child: Text(
-                          message.senderName.isNotEmpty
-                              ? message.senderName[0].toUpperCase()
-                              : '?',
-                          style: TextStyle(
-                            color: blueColor,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
               ),
             )
           else if (!isMe && !showSenderInfo)
@@ -1071,43 +1184,78 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
     );
   }
 
-  // Add this new method to show profile options
+  // Method to show profile options when tapping on user avatar
   void _showProfileOptions(String userId, String userName) {
     showModalBottomSheet(
       context: context,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      backgroundColor: Colors.white,
+      elevation: 10,
       builder: (BuildContext context) {
         return Container(
-          padding: EdgeInsets.symmetric(vertical: 16),
+          padding: EdgeInsets.only(top: 20, bottom: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Profile header
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              // Close button and header row
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Container(
-                      width: 50,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: blueColor.withOpacity(0.1),
-                        shape: BoxShape.circle,
+                    Text(
+                      "User Profile",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: blueColor,
                       ),
-                      child: Center(
-                        child: Text(
-                          userName.isNotEmpty ? userName[0].toUpperCase() : '?',
-                          style: TextStyle(
-                            color: blueColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 24,
-                          ),
+                    ),
+                    InkWell(
+                      onTap: () => Navigator.pop(context),
+                      borderRadius: BorderRadius.circular(50),
+                      child: Container(
+                        padding: EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close,
+                          size: 22,
+                          color: Colors.grey[700],
                         ),
                       ),
                     ),
-                    SizedBox(width: 16),
+                  ],
+                ),
+              ),
+              
+              SizedBox(height: 20),
+              
+              // Profile header with improved UI
+                    Container(
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                margin: EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Row(
+                  children: [
+                    // Profile image with loading from Firebase
+                    StreamingProfileImage(
+                      userId: userId,
+                      fallbackName: userName,
+                      size: 64,
+                      backgroundColor: blueColor.withOpacity(0.1),
+                      borderColor: blueColor.withOpacity(0.3),
+                      borderWidth: 2,
+                    ),
+                    SizedBox(width: 20),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1116,16 +1264,115 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
                             userName,
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                              fontSize: 18,
+                              color: Colors.black87,
                             ),
                           ),
-                          SizedBox(height: 4),
+                          SizedBox(height: 6),
+                          StreamBuilder<DocumentSnapshot>(
+                            stream: _presenceService.getUserPresenceStream(userId),
+                            builder: (context, snapshot) {
+                              // Loading state
+                              if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                                return Container(
+                                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[100],
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.grey[300]!),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        width: 10,
+                                        height: 10,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.grey[400],
+                                        ),
+                                      ),
+                                      SizedBox(width: 5),
                           Text(
-                            'Tap to connect',
+                                        'Checking status...',
                             style: TextStyle(
                               color: Colors.grey[600],
-                              fontSize: 14,
+                                          fontSize: 12,
                             ),
+                          ),
+                        ],
+                                  ),
+                                );
+                              }
+                              
+                              bool isOnline = false;
+                              String lastSeenText = '';
+                              
+                              if (snapshot.hasData && snapshot.data != null && snapshot.data!.exists) {
+                                final data = snapshot.data!.data() as Map<String, dynamic>?;
+                                isOnline = data?['isOnline'] == true;
+                                
+                                // If user is offline, show last active time
+                                if (!isOnline && data?['lastActive'] != null) {
+                                  final lastActive = (data!['lastActive'] as Timestamp).toDate();
+                                  lastSeenText = 'Last seen ${_formatTimestamp(lastActive)}';
+                                }
+                              }
+                              
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: isOnline 
+                                          ? Colors.green.withOpacity(0.1)
+                                          : Colors.grey.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: isOnline
+                                            ? Colors.green.withOpacity(0.3)
+                                            : Colors.grey.withOpacity(0.3),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          margin: const EdgeInsets.only(right: 5),
+                                          decoration: BoxDecoration(
+                                            color: isOnline ? Colors.green : Colors.grey,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        Text(
+                                          isOnline ? 'Online' : 'Offline',
+                                          style: TextStyle(
+                                            color: isOnline ? Colors.green[700] : Colors.grey[700],
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+                                  if (!isOnline && lastSeenText.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4, left: 2),
+                                      child: Text(
+                                        lastSeenText,
+                                        style: TextStyle(
+                                          color: Colors.grey[600],
+                                          fontSize: 11,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -1133,25 +1380,169 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
                   ],
                 ),
               ),
-              Divider(),
-              // Connect button
-              ListTile(
-                leading: Icon(Icons.person_add, color: blueColor),
-                title: Text('Send Friend Request'),
+              
+              SizedBox(height: 24),
+              Divider(height: 1, thickness: 1, color: Colors.grey[200]),
+              SizedBox(height: 8),
+              
+              // Connect button (renamed from Send Friend Request)
+              FutureBuilder<Map<String, bool>>(
+                future: _checkFriendStatus(userId),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return ListTile(
+                      leading: Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: blueColor.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: blueColor,
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        'Checking connection status...',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  bool isFriend = false;
+                  bool hasPendingRequest = false;
+                  
+                  if (snapshot.hasData && snapshot.data != null) {
+                    isFriend = snapshot.data!['isFriend'] == true;
+                    hasPendingRequest = snapshot.data!['hasPendingRequest'] == true;
+                  }
+                  
+                  if (isFriend) {
+                    return ListTile(
+                      leading: Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.people, color: Colors.green[700]),
+                      ),
+                      title: Text(
+                        'Connected',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: Colors.green[700],
+                        ),
+                      ),
+                      subtitle: Text(
+                        'You are already connected with this user',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    );
+                  } else if (hasPendingRequest) {
+                    return ListTile(
+                      leading: Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.people_alt_outlined, color: Colors.orange[700]),
+                      ),
+                      title: Text(
+                        'Request Pending',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          color: Colors.orange[700],
+                        ),
+                      ),
+                      subtitle: Text(
+                        'You have already sent a connection request',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
+                    );
+                  } else {
+                    return ListTile(
+                      leading: Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: blueColor.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.people_outline, color: blueColor),
+                      ),
+                      title: Text(
+                        'Connect',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Send a connection request to this user',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 13,
+                        ),
+                      ),
                 onTap: () async {
                   Navigator.pop(context);
                   await _sendFriendRequest(userId, userName);
+                      },
+                    );
+                  }
                 },
               ),
-              // View profile button
+              
+              // View profile button with enhanced styling
               ListTile(
-                leading: Icon(Icons.person, color: blueColor),
-                title: Text('View Profile'),
+                leading: Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: orangeColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.person_outline, color: orangeColor),
+                ),
+                title: Text(
+                  'View Profile',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                subtitle: Text(
+                  'See full profile details and activity',
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 13,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(context);
-                  // TODO: Implement view profile functionality
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Profile view coming soon')),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UserProfileViewScreen(
+                        userId: userId,
+                        initialUserName: userName,
+                      ),
+                    ),
                   );
                 },
               ),
@@ -1216,6 +1607,44 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> with WidgetsBindingObse
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to send request')),
       );
+    }
+  }
+
+  Future<Map<String, bool>> _checkFriendStatus(String userId) async {
+    try {
+      final currentUser = _authService.currentUser;
+      if (currentUser == null) {
+        return {'isFriend': false, 'hasPendingRequest': false};
+      }
+      
+      // Check if already friends
+      final friendQuerySnapshot = await _firestore
+          .collection('friends')
+          .where('userId', isEqualTo: currentUser.uid)
+          .where('friendId', isEqualTo: userId)
+          .limit(1)
+          .get();
+          
+      bool isFriend = friendQuerySnapshot.docs.isNotEmpty;
+      
+      // Check pending request
+      final requestQuerySnapshot = await _firestore
+          .collection('friendRequests')
+          .where('senderId', isEqualTo: currentUser.uid)
+          .where('recipientId', isEqualTo: userId)
+          .where('status', isEqualTo: 'pending')
+          .limit(1)
+          .get();
+          
+      bool hasPendingRequest = requestQuerySnapshot.docs.isNotEmpty;
+      
+      return {
+        'isFriend': isFriend,
+        'hasPendingRequest': hasPendingRequest,
+      };
+    } catch (e) {
+      developer.log('Error checking friend status: $e', name: 'ChatRoom');
+      return {'isFriend': false, 'hasPendingRequest': false};
     }
   }
 } 

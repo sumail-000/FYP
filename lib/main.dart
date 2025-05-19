@@ -15,6 +15,9 @@ import 'profile/profile_screen.dart';
 import 'friend_requests/friend_requests_screen.dart';
 import 'friends/friends_screen.dart';
 import 'chatbot/chatbot_screen.dart';
+import 'services/activity_points_service.dart';
+import 'dart:developer' as developer;
+import 'package:cloud_firestore/cloud_firestore.dart';
 // DocumentsScreen will be implemented later
 
 void main() async {
@@ -69,6 +72,7 @@ class WelcomeScreen extends StatefulWidget {
 
 class _WelcomeScreenState extends State<WelcomeScreen> {
   final AuthService _authService = AuthService();
+  final ActivityPointsService _activityPointsService = ActivityPointsService();
 
   @override
   void initState() {
@@ -77,6 +81,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     // Check if user is already logged in
     Future.delayed(Duration.zero, () async {
       if (_authService.currentUser != null) {
+        // Award daily login streak points
+        await _checkDailyLoginStreak();
+        
         // Check if profile is complete before navigating
         bool isProfileComplete = await _authService.isProfileComplete();
         if (mounted) {
@@ -92,6 +99,53 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         });
       }
     });
+  }
+  
+  // Check and award daily login streak points
+  Future<void> _checkDailyLoginStreak() async {
+    try {
+      final result = await _activityPointsService.checkAndAwardDailyLoginStreak();
+      
+      if (result['success']) {
+        // Store streak information in a static variable that can be accessed by the dashboard
+        if (result['streakIncreased'] && result['currentStreak'] > 1) {
+          // Store streak data for dashboard to use
+          await _storeStreakData(result['currentStreak'], result['pointsAwarded']);
+        }
+        
+        developer.log(
+          'Daily login streak processed: Streak=${result['currentStreak']}, '
+          'Points awarded=${result['pointsAwarded']}',
+          name: 'WelcomeScreen'
+        );
+      } else {
+        developer.log('Failed to process daily login: ${result['message']}', name: 'WelcomeScreen');
+      }
+    } catch (e) {
+      developer.log('Error checking daily login streak: $e', name: 'WelcomeScreen');
+    }
+  }
+  
+  // Store streak data in shared preferences or other storage
+  Future<void> _storeStreakData(int currentStreak, int pointsAwarded) async {
+    try {
+      // Store in Firestore for the current user to ensure persistence
+      final user = _authService.currentUser;
+      if (user != null) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+          'lastStreakCheck': {
+            'timestamp': FieldValue.serverTimestamp(),
+            'currentStreak': currentStreak,
+            'pointsAwarded': pointsAwarded,
+            'shown': false,
+          }
+        });
+        
+        developer.log('Stored streak data for dashboard to display', name: 'WelcomeScreen');
+      }
+    } catch (e) {
+      developer.log('Error storing streak data: $e', name: 'WelcomeScreen');
+    }
   }
 
   @override

@@ -6,7 +6,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import '../auth/auth_service.dart';
 import '../upload/cloudinary_service.dart';
+import '../services/activity_points_service.dart';
+import '../services/badge_service.dart';
+import '../model/activity_points_model.dart';
+import '../model/badge_model.dart' as models;
+import '../widgets/badge_widget.dart';
+import 'activity_points_screen.dart';
 import 'dart:developer' as developer;
+import 'change_password_screen.dart';
+import 'edit_profile_screen.dart';
+import '../about/about_app_screen.dart';
+import '../help/help_and_faqs_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -19,38 +29,71 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _authService = AuthService();
   final CloudinaryService _cloudinaryService = CloudinaryService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ActivityPointsService _activityPointsService = ActivityPointsService();
+  final BadgeService _badgeService = BadgeService();
   
   bool _isLoading = true;
   bool _isUpdating = false;
+  bool _isLoadingPoints = true;
+  bool _isLoadingBadges = true;
   String _userName = '';
   String _userEmail = '';
   String _userUniversity = '';
   String _userRole = '';
+  String _userBio = '';
   String? _profileImageUrl;
+  ActivityPointsModel? _activityPoints;
+  
+  // Badge data
+  List<models.Badge> _userBadges = [];
+  models.Badge? _primaryBadge;
   
   // Controllers for edit profile
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _currentPasswordController = TextEditingController();
-  final TextEditingController _newPasswordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
   
   File? _imageFile;
-  bool _isDarkTheme = false;
-  bool _notificationsEnabled = true;
   
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadActivityPoints();
+    _loadUserBadges();
   }
   
   @override
   void dispose() {
     _nameController.dispose();
-    _currentPasswordController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
     super.dispose();
+  }
+  
+  Future<void> _loadUserBadges() async {
+    setState(() => _isLoadingBadges = true);
+    
+    try {
+      // Get current user ID
+      final user = _authService.currentUser;
+      if (user != null) {
+        // Get user's activity points to determine badge eligibility
+        final activityPointsDoc = await _firestore.collection('activity_points').doc(user.uid).get();
+        int activityPoints = 0;
+        
+        if (activityPointsDoc.exists) {
+          final data = activityPointsDoc.data() as Map<String, dynamic>;
+          activityPoints = data['totalPoints'] ?? 0;
+        }
+        
+        // Get user badges and update based on activity points
+        _userBadges = await _badgeService.updateUserBadges(user.uid, activityPoints);
+        
+        // Get primary badge (highest earned)
+        _primaryBadge = await _badgeService.getHighestEarnedBadge(user.uid);
+      }
+    } catch (e) {
+      developer.log('Error loading user badges: $e', name: 'ProfileScreen');
+    } finally {
+      setState(() => _isLoadingBadges = false);
+    }
   }
   
   Future<void> _loadUserData() async {
@@ -72,6 +115,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _userEmail = user.email ?? 'No email';
             _userUniversity = data['university'] ?? 'Not specified';
             _userRole = data['role'] ?? 'Student';
+            _userBio = data['bio'] ?? '';
             
             // First try to get profile image from profiles collection
             if (profileData.exists) {
@@ -86,10 +130,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             
             // Set controller values
             _nameController.text = _userName;
-            
-            // Load theme preference (in a real app, you might use shared preferences)
-            _isDarkTheme = data['darkTheme'] ?? false;
-            _notificationsEnabled = data['notificationsEnabled'] ?? true;
           });
         }
       }
@@ -100,6 +140,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+  
+  Future<void> _loadActivityPoints() async {
+    setState(() => _isLoadingPoints = true);
+    
+    try {
+      final pointsModel = await _activityPointsService.getUserActivityPoints();
+      setState(() {
+        _activityPoints = pointsModel;
+      });
+    } catch (e) {
+      developer.log('Error loading activity points: $e', name: 'ProfileScreen');
+    } finally {
+      setState(() => _isLoadingPoints = false);
     }
   }
   
@@ -228,383 +283,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
   
-  Future<void> _changePassword() async {
-    // Validate inputs
-    if (_currentPasswordController.text.isEmpty ||
-        _newPasswordController.text.isEmpty ||
-        _confirmPasswordController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('All fields are required')),
-      );
-      return;
-    }
-    
-    if (_newPasswordController.text != _confirmPasswordController.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('New passwords do not match')),
-      );
-      return;
-    }
-    
-    setState(() => _isUpdating = true);
-    
-    try {
-      final user = _authService.currentUser;
-      if (user != null && user.email != null) {
-        // Reauthenticate user
-        AuthCredential credential = EmailAuthProvider.credential(
-          email: user.email!,
-          password: _currentPasswordController.text,
-        );
-        
-        await user.reauthenticateWithCredential(credential);
-        
-        // Change password
-        await user.updatePassword(_newPasswordController.text);
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Password changed successfully')),
-        );
-        
-        // Clear password fields
-        _currentPasswordController.clear();
-        _newPasswordController.clear();
-        _confirmPasswordController.clear();
-        
-        Navigator.pop(context); // Close dialog
-      }
-    } on FirebaseAuthException catch (e) {
-      String message = 'An error occurred';
-      if (e.code == 'wrong-password') {
-        message = 'Current password is incorrect';
-      } else if (e.code == 'weak-password') {
-        message = 'New password is too weak';
-      }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } catch (e) {
-      developer.log('Error changing password: $e', name: 'ProfileScreen');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to change password')),
-      );
-    } finally {
-      setState(() => _isUpdating = false);
-    }
-  }
-  
-  void _showChangePasswordDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Change Password',
-          style: TextStyle(
-            color: Color(0xFF2D6DA8),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        content: Container(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Lock icon at top
-                Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: CircleAvatar(
-                    radius: 30,
-                    backgroundColor: Color(0xFF2D6DA8).withOpacity(0.1),
-                    child: Icon(
-                      Icons.lock,
-                      color: Color(0xFF2D6DA8),
-                      size: 30,
-                    ),
-                  ),
-                ),
-                
-                // Current password field
-                TextField(
-                  controller: _currentPasswordController,
-                  decoration: InputDecoration(
-                    labelText: 'Current Password',
-                    labelStyle: TextStyle(color: Color(0xFF2D6DA8)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: Color(0xFF2D6DA8),
-                        width: 2.0,
-                      ),
-                    ),
-                    prefixIcon: Icon(
-                      Icons.lock_outline,
-                      color: Color(0xFF2D6DA8),
-                    ),
-                  ),
-                  obscureText: true,
-                ),
-                
-                SizedBox(height: 16),
-                
-                // New password field
-                TextField(
-                  controller: _newPasswordController,
-                  decoration: InputDecoration(
-                    labelText: 'New Password',
-                    labelStyle: TextStyle(color: Color(0xFF2D6DA8)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: Color(0xFF2D6DA8),
-                        width: 2.0,
-                      ),
-                    ),
-                    prefixIcon: Icon(
-                      Icons.lock_open,
-                      color: Color(0xFF2D6DA8),
-                    ),
-                    helperText: 'Password must be at least 6 characters',
-                    helperStyle: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  obscureText: true,
-                ),
-                
-                SizedBox(height: 16),
-                
-                // Confirm new password field
-                TextField(
-                  controller: _confirmPasswordController,
-                  decoration: InputDecoration(
-                    labelText: 'Confirm New Password',
-                    labelStyle: TextStyle(color: Color(0xFF2D6DA8)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide(
-                        color: Color(0xFF2D6DA8),
-                        width: 2.0,
-                      ),
-                    ),
-                    prefixIcon: Icon(
-                      Icons.check_circle_outline,
-                      color: Color(0xFF2D6DA8),
-                    ),
-                  ),
-                  obscureText: true,
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          // Cancel button
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                color: Colors.grey[700],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          
-          // Change password button
-          ElevatedButton(
-            onPressed: _isUpdating ? null : _changePassword,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF2D6DA8),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            ),
-            child: _isUpdating 
-                ? SizedBox(
-                    width: 20, 
-                    height: 20, 
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : Text(
-                    'Update Password',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  void _showEditProfileDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Edit Profile',
-          style: TextStyle(
-            color: Color(0xFF2D6DA8),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        content: Container(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Profile image at the top (optional)
-              if (_profileImageUrl != null)
-                Padding(
-                  padding: EdgeInsets.only(bottom: 16),
-                  child: CircleAvatar(
-                    radius: 40,
-                    backgroundColor: Colors.grey[200],
-                    backgroundImage: NetworkImage(_profileImageUrl!),
-                  ),
-                ),
-              
-              // Username field
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Name',
-                  labelStyle: TextStyle(color: Color(0xFF2D6DA8)),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: Color(0xFF2D6DA8),
-                      width: 2.0,
-                    ),
-                  ),
-                  prefixIcon: Icon(
-                    Icons.person, 
-                    color: Color(0xFF2D6DA8),
-                  ),
-                ),
-              ),
-              
-              SizedBox(height: 8),
-              
-              // Email display (read-only)
-              TextField(
-                readOnly: true,
-                enabled: false,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  labelStyle: TextStyle(color: Colors.grey),
-                  disabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: Colors.grey.shade300,
-                    ),
-                  ),
-                  prefixIcon: Icon(Icons.email, color: Colors.grey),
-                  hintText: _userEmail,
-                  hintStyle: TextStyle(color: Colors.grey[600]),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          // Cancel button
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                color: Colors.grey[700],
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          
-          // Save button
-          ElevatedButton(
-            onPressed: _isUpdating ? null : _updateProfile,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF2D6DA8),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            ),
-            child: _isUpdating 
-                ? SizedBox(
-                    width: 20, 
-                    height: 20, 
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : Text(
-                    'Save Changes',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  Future<void> _updateTheme(bool value) async {
-    setState(() => _isDarkTheme = value);
-    
-    try {
-      final user = _authService.currentUser;
-      if (user != null) {
-        await _firestore.collection('users').doc(user.uid).update({
-          'darkTheme': value,
-        });
-      }
-    } catch (e) {
-      developer.log('Error updating theme preference: $e', name: 'ProfileScreen');
-    }
-  }
-  
-  Future<void> _updateNotifications(bool value) async {
-    setState(() => _notificationsEnabled = value);
-    
-    try {
-      final user = _authService.currentUser;
-      if (user != null) {
-        await _firestore.collection('users').doc(user.uid).update({
-          'notificationsEnabled': value,
-        });
-      }
-    } catch (e) {
-      developer.log('Error updating notification preference: $e', name: 'ProfileScreen');
-    }
-  }
   
   Future<void> _deleteProfilePicture() async {
     try {
@@ -804,6 +483,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final Color blueColor = Color(0xFF2D6DA8);
+    final Color orangeColor = Color(0xFFf06517);
     
     return Scaffold(
       appBar: AppBar(
@@ -962,6 +642,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               color: Colors.grey[600],
                             ),
                           ),
+                          if (_userBio.isNotEmpty) ...[
+                            SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              margin: EdgeInsets.symmetric(horizontal: 24),
+                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[50],
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.grey[300]!,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                _userBio,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.grey[700],
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
                           SizedBox(height: 8),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -1019,6 +725,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                             ],
                           ),
+                          SizedBox(height: 16),
+                          
+                          // Activity Points badge
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: orangeColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: orangeColor.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.star,
+                                  size: 20,
+                                  color: orangeColor,
+                                ),
+                                SizedBox(width: 8),
+                                _isLoadingPoints
+                                  ? SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(orangeColor),
+                                      ),
+                                    )
+                                  : Text(
+                                      'Activity Points: ${_activityPoints?.totalPoints ?? 0}',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: orangeColor,
+                                      ),
+                                    ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -1032,8 +780,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         // Account section
                         _buildSectionHeader('Account'),
                         _buildListItem(
+                          icon: Icons.star_border,
+                          title: 'Activity Points',
+                          subtitle: 'View your earned points',
+                          color: orangeColor,
+                          onTap: _showActivityPointsDetails,
+                        ),
+                        _buildListItem(
                           icon: Icons.edit,
-                          title: 'Edit Profile',
+                          title: 'Edit Bio',
                           color: blueColor,
                           onTap: _showEditProfileDialog,
                         ),
@@ -1041,25 +796,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           icon: Icons.key,
                           title: 'Change Password',
                           color: blueColor,
-                          onTap: _showChangePasswordDialog,
-                        ),
-                        
-                        // Preferences section
-                        _buildSectionHeader('Preferences'),
-                        _buildSwitchItem(
-                          icon: Icons.dark_mode,
-                          title: 'Theme',
-                          subtitle: _isDarkTheme ? 'Dark' : 'Light',
-                          color: blueColor,
-                          value: _isDarkTheme,
-                          onChanged: _updateTheme,
-                        ),
-                        _buildSwitchItem(
-                          icon: Icons.notifications,
-                          title: 'Notifications',
-                          color: blueColor,
-                          value: _notificationsEnabled,
-                          onChanged: _updateNotifications,
+                          onTap: _navigateToChangePassword,
                         ),
                         
                         // About section
@@ -1068,21 +805,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           icon: Icons.info,
                           title: 'About App',
                           color: blueColor,
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Academia Hub v1.0')),
-                            );
-                          },
+                          onTap: _navigateToAboutApp,
                         ),
                         _buildListItem(
                           icon: Icons.help,
-                          title: 'Help & Support',
+                          title: 'Help & FAQs',
                           color: blueColor,
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Support coming soon')),
-                            );
-                          },
+                          onTap: _navigateToHelpAndFaqs,
                         ),
                         _buildListItem(
                           icon: Icons.privacy_tip,
@@ -1139,98 +868,703 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required VoidCallback onTap,
   }) {
     return Container(
-      margin: EdgeInsets.symmetric(vertical: 4),
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 10,
+            spreadRadius: 1,
+            offset: Offset(0, 4),
+          ),
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
             blurRadius: 5,
             offset: Offset(0, 2),
           ),
         ],
+        border: Border.all(
+          color: color.withOpacity(0.1),
+          width: 1,
+        ),
       ),
       child: ListTile(
         leading: Container(
-          padding: EdgeInsets.all(8),
+          padding: EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            gradient: LinearGradient(
+              colors: [
+                color.withOpacity(0.2),
+                color.withOpacity(0.1),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: color.withOpacity(0.1),
+                blurRadius: 4,
+                spreadRadius: 1,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-          child: Icon(icon, color: color),
+          child: Icon(icon, color: color, size: 24),
         ),
         title: Text(
           title,
           style: TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 16,
+            color: Colors.grey[800],
           ),
         ),
-        subtitle: subtitle != null ? Text(subtitle) : null,
-        trailing: Icon(
-          Icons.chevron_right,
-          color: color.withOpacity(0.7),
+        subtitle: subtitle != null 
+            ? Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ) 
+            : null,
+        trailing: Container(
+      decoration: BoxDecoration(
+            color: color.withOpacity(0.05),
+            shape: BoxShape.circle,
+          ),
+          child: Padding(
+          padding: EdgeInsets.all(8),
+            child: Icon(
+              Icons.chevron_right,
+              color: color,
+              size: 22,
+            ),
+          ),
         ),
         onTap: onTap,
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
         ),
       ),
     );
   }
   
-  Widget _buildSwitchItem({
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    required Color color,
-    required bool value,
-    required Function(bool) onChanged,
-  }) {
+
+  
+  // Show Activity Points Details Screen
+  void _showActivityPointsDetails() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ActivityPointsScreen(
+          activityPoints: _activityPoints,
+          isLoading: _isLoadingPoints,
+        ),
+      ),
+    );
+  }
+  
+  // Activity Points Screen
+  Widget _buildActivityPointsSection() {
+    if (_isLoadingPoints) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    
+    if (_activityPoints == null) {
+      return Container(
+        margin: EdgeInsets.symmetric(vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 5,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: EdgeInsets.all(16),
+        child: Center(
+          child: Text('No activity points data found'),
+        ),
+      );
+    }
+    
+    return Column(
+      children: [
+        _buildActivityItem(
+          'Profile Completion',
+          ActivityPointsService.PROFILE_COMPLETION_POINTS,
+          _activityPoints!.oneTimeActivities[ActivityType.profileCompletion] ?? false,
+          Icons.person_outline,
+        ),
+        _buildActivityItem(
+          'University Email Verification',
+          ActivityPointsService.UNIVERSITY_EMAIL_POINTS,
+          _activityPoints!.oneTimeActivities[ActivityType.universityEmail] ?? false,
+          Icons.email_outlined,
+        ),
+        _buildActivityItem(
+          'First Login',
+          ActivityPointsService.FIRST_LOGIN_POINTS,
+          _activityPoints!.oneTimeActivities[ActivityType.firstLogin] ?? false,
+          Icons.login_outlined,
+        ),
+        Container(
+          margin: EdgeInsets.only(top: 8, bottom: 8),
+          padding: EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.orange.withOpacity(0.2),
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.lightbulb_outline,
+                color: Colors.orange,
+                size: 20,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Keep earning points by uploading academic resources and logging in daily!',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.orange[800],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildActivityItem(String title, int points, bool completed, IconData icon) {
+    final Color itemColor = completed ? Colors.green : Colors.grey;
+    
     return Container(
-      margin: EdgeInsets.symmetric(vertical: 4),
+      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
+            color: itemColor.withOpacity(0.1),
+            blurRadius: 8,
+            spreadRadius: 1,
+            offset: Offset(0, 3),
+          ),
+          BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
-            offset: Offset(0, 2),
+            blurRadius: 3,
+            offset: Offset(0, 1),
           ),
         ],
+        border: Border.all(
+          color: itemColor.withOpacity(0.1),
+          width: 1,
+        ),
       ),
       child: ListTile(
         leading: Container(
-          padding: EdgeInsets.all(8),
+          padding: EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            gradient: LinearGradient(
+              colors: [
+                itemColor.withOpacity(0.2),
+                itemColor.withOpacity(0.1),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
             shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: itemColor.withOpacity(0.1),
+                blurRadius: 4,
+                spreadRadius: 1,
+                offset: Offset(0, 2),
+              ),
+            ],
           ),
-          child: Icon(icon, color: color),
+          child: Icon(
+            completed ? Icons.check_circle : icon,
+            color: itemColor,
+            size: 22,
+          ),
         ),
         title: Text(
           title,
           style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
+            fontSize: 15,
+            color: completed ? Colors.black87 : Colors.grey[700],
+            fontWeight: completed ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
-        subtitle: subtitle != null ? Text(subtitle) : null,
-        trailing: Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: Colors.white,
-          activeTrackColor: color,
-          inactiveThumbColor: Colors.white,
-          inactiveTrackColor: Colors.grey[300],
+        trailing: Container(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                completed ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.15),
+                completed ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.05),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: completed ? Colors.green.withOpacity(0.1) : Colors.transparent,
+                blurRadius: 4,
+                spreadRadius: 0,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+          child: Text(
+            '+$points',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: completed ? Colors.green : Colors.grey,
+            ),
+          ),
         ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
         ),
+      ),
+    );
+  }
+  
+  // Build badges section to display user's earned badges
+  Widget _buildBadgesSection() {
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0xFF2D6DA8).withOpacity(0.1),
+            blurRadius: 12,
+            spreadRadius: 2,
+            offset: Offset(0, 5),
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 3,
+            offset: Offset(0, 1),
+          ),
+        ],
+        border: Border.all(
+          color: Color(0xFF2D6DA8).withOpacity(0.1),
+          width: 1.5,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Color(0xFF2D6DA8).withOpacity(0.2),
+                        Color(0xFF2D6DA8).withOpacity(0.1),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                  Icons.workspace_premium,
+                  color: Color(0xFF2D6DA8),
+                    size: 24,
+                ),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'My Badges',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2D6DA8),
+                  ),
+                ),
+                Spacer(),
+                if (!_isLoadingBadges && _userBadges.where((b) => b.isEarned).isNotEmpty)
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Color(0xFFf06517).withOpacity(0.2),
+                          Color(0xFFf06517).withOpacity(0.1),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: GestureDetector(
+                    onTap: () {
+                      // Navigate to badge details screen or show more badges
+                      if (_activityPoints != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ActivityPointsScreen(
+                              activityPoints: _activityPoints!,
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                      'View All',
+                      style: TextStyle(
+                        color: Color(0xFFf06517),
+                        fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                      ),
+                    ),
+                          SizedBox(width: 4),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            color: Color(0xFFf06517),
+                            size: 12,
+                  ),
+              ],
+            ),
+                    ),
+                  ),
+              ],
+            ),
+            SizedBox(height: 20),
+            _isLoadingBadges
+                ? Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2D6DA8)),
+                    ),
+                  )
+                : _userBadges.where((b) => b.isEarned).isEmpty
+                    ? Center(
+                        child: Column(
+                          children: [
+                            SizedBox(height: 20),
+                            Container(
+                              padding: EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                              Icons.emoji_events_outlined,
+                              size: 60,
+                              color: Colors.grey[400],
+                              ),
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'No badges earned yet',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Keep contributing to earn badges!',
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 14,
+                              ),
+                            ),
+                            SizedBox(height: 20),
+                          ],
+                        ),
+                      )
+                    : BadgesRow(
+                        badges: _userBadges,
+                        size: 70,
+                        onBadgeTap: (badge) {
+                          // Show badge details
+                          _showBadgeDetails(badge);
+                        },
+                      ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // Show badge details in a dialog
+  void _showBadgeDetails(models.Badge badge) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        contentPadding: EdgeInsets.zero,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Badge header with color
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: badge.color.withOpacity(0.1),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  BadgeWidget(
+                    badge: badge,
+                    size: 60,
+                    showUnearned: true,
+                  ),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          badge.name,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: badge.color,
+                          ),
+                        ),
+                        if (badge.isEarned) ...[
+                          SizedBox(height: 4),
+                          Text(
+                            'Earned: ${_formatTimestamp(badge.earnedAt!)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ] else ...[
+                          SizedBox(height: 4),
+                          Text(
+                            'Required: ${badge.pointsRequired} points',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Badge description
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Description',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    badge.description,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[800],
+                      height: 1.4,
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                  // Close button
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(
+                        'Close',
+                        style: TextStyle(
+                          color: Color(0xFF2D6DA8),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // Helper method to format timestamp
+  String _formatTimestamp(Timestamp timestamp) {
+    final dateTime = timestamp.toDate();
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays < 1) {
+      if (difference.inHours < 1) {
+        return '${difference.inMinutes} minutes ago';
+      }
+      return '${difference.inHours} hours ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inDays < 30) {
+      return '${(difference.inDays / 7).floor()} weeks ago';
+    } else if (difference.inDays < 365) {
+      return '${(difference.inDays / 30).floor()} months ago';
+    } else {
+      return '${(difference.inDays / 365).floor()} years ago';
+    }
+  }
+
+  // Add this method to build profile header with badge
+  Widget _buildProfileHeader() {
+    final avatarSize = 100.0;
+    
+    return Stack(
+      children: [
+        // Profile image
+        Container(
+          width: avatarSize,
+          height: avatarSize,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 8,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: _profileImageUrl != null
+            ? ClipOval(
+                child: Image.network(
+                  _profileImageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Center(
+                      child: Text(
+                        _userName.isNotEmpty ? _userName[0].toUpperCase() : '?',
+                        style: TextStyle(
+                          color: Color(0xFF2D6DA8),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 36,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              )
+            : Center(
+                child: Text(
+                  _userName.isNotEmpty ? _userName[0].toUpperCase() : '?',
+                  style: TextStyle(
+                    color: Color(0xFF2D6DA8),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 36,
+                  ),
+                ),
+              ),
+        ),
+        
+        // Badge overlay (if earned)
+        if (_primaryBadge != null && !_isLoadingBadges)
+          ProfileBadgeOverlay(
+            badge: _primaryBadge!,
+            avatarSize: avatarSize,
+          ),
+      ],
+    );
+  }
+
+  // Replace the existing _showChangePasswordDialog method with this one
+  void _navigateToChangePassword() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ChangePasswordScreen(),
+      ),
+    );
+  }
+
+  void _showEditProfileDialog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditProfileScreen(
+          initialProfileImageUrl: _profileImageUrl,
+          initialName: _userName,
+          initialEmail: _userEmail,
+          initialBio: _userBio,
+        ),
+      ),
+    ).then((_) {
+      // Refresh user data when returning from edit screen
+      _loadUserData();
+    });
+  }
+
+  void _navigateToAboutApp() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AboutAppScreen(),
+      ),
+    );
+  }
+
+  void _navigateToHelpAndFaqs() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const HelpAndFaqsScreen(),
       ),
     );
   }

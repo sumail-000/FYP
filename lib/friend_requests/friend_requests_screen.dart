@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:developer' as developer;
 import '../auth/auth_service.dart';
+import '../services/activity_points_service.dart';
 
 class FriendRequestsScreen extends StatefulWidget {
   const FriendRequestsScreen({Key? key}) : super(key: key);
@@ -12,6 +13,7 @@ class FriendRequestsScreen extends StatefulWidget {
 
 class _FriendRequestsScreenState extends State<FriendRequestsScreen> with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
+  final ActivityPointsService _activityPointsService = ActivityPointsService();
   late TabController _tabController;
   bool _isLoading = false;
   
@@ -752,6 +754,24 @@ class _FriendRequestsScreenState extends State<FriendRequestsScreen> with Single
             'friends': FieldValue.arrayUnion([senderId])
           }, SetOptions(merge: true));
           
+          // Award connection points to both users
+          try {
+            // Award points to sender
+            if (senderId == _authService.currentUser!.uid) {
+              await _activityPointsService.awardConnectionPoints();
+              developer.log('Awarded connection points to sender (current user)', name: 'FriendRequests');
+            }
+            
+            // Award points to recipient
+            if (recipientId == _authService.currentUser!.uid) {
+              await _activityPointsService.awardConnectionPoints();
+              developer.log('Awarded connection points to recipient (current user)', name: 'FriendRequests');
+            }
+          } catch (e) {
+            developer.log('Error awarding connection points: $e', name: 'FriendRequests');
+            // Don't throw the error to avoid disrupting the user experience
+          }
+          
           // Verify the friends were added
           final senderDoc = await FirebaseFirestore.instance
               .collection('users')
@@ -800,10 +820,11 @@ class _FriendRequestsScreenState extends State<FriendRequestsScreen> with Single
         SnackBar(
           content: Text(
             status == 'accepted'
-                ? 'Friend request accepted'
+                ? 'Friend request accepted! +${ActivityPointsService.CONNECTION_POINTS} points awarded'
                 : 'Friend request declined'
           ),
           behavior: SnackBarBehavior.floating,
+          backgroundColor: status == 'accepted' ? Colors.green : null,
         ),
       );
     } catch (e) {

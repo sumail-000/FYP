@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'upload_progress_screen.dart';
 import '../auth/auth_service.dart';
+import '../services/activity_points_service.dart';
 
 class UploadService {
   // Firebase collection for departments
@@ -35,6 +36,9 @@ class UploadService {
 
   // Auth service to get user information
   final AuthService _authService = AuthService();
+  
+  // Activity points service
+  final ActivityPointsService _activityPointsService = ActivityPointsService();
 
   // Default departments list (used as fallback if Firebase fails)
   static final List<String> _defaultDepartments = ['IT (Arfa Karim)'];
@@ -629,6 +633,9 @@ class UploadService {
       if (department != null && course != null && courseCode != null) {
         await saveCourseMapping(department, course, courseCode);
       }
+      
+      // Award activity points for document upload
+      await _activityPointsService.awardResourceUploadPoints();
 
       print('File uploaded successfully: ${response.secureUrl}');
     } catch (e) {

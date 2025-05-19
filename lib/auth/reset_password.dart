@@ -3,6 +3,15 @@ import 'auth_service.dart';
 import 'login.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
+  // Add a parameter to indicate where the user is coming from
+  final bool fromPasswordChange;
+  
+  // Constructor with optional parameter
+  const ResetPasswordScreen({
+    Key? key, 
+    this.fromPasswordChange = false,
+  }) : super(key: key);
+
   @override
   _ResetPasswordScreenState createState() => _ResetPasswordScreenState();
 }
@@ -290,13 +299,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                       ),
                       
                       SizedBox(height: 30),
-                      // Animated back to login link
+                      // Animated back to login/password change link
                       SlideTransition(
                         position: _animations[4],
                         child: TextButton.icon(
                           icon: Icon(Icons.arrow_back, color: Color(0xFF125F9D), size: 20),
                           label: Text(
-                            'Back to Login',
+                            widget.fromPasswordChange ? 'Back to Password Change' : 'Back to Login',
                             style: TextStyle(
                               color: Color(0xFF125F9D),
                               fontWeight: FontWeight.bold,
@@ -304,7 +313,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> with SingleTi
                             ),
                           ),
                           onPressed: () {
-                            Navigator.of(context).pushReplacementNamed('/login');
+                            if (widget.fromPasswordChange) {
+                              Navigator.pop(context); // Go back to the previous screen (Password Change)
+                            } else {
+                              Navigator.of(context).pushReplacementNamed('/login');
+                            }
                           },
                         ),
                       ),
