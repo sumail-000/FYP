@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ChatbotResponse {
   final String text;
@@ -22,35 +23,96 @@ class ChatbotService {
   factory ChatbotService() => _instance;
   ChatbotService._internal();
 
-  // URL should be updated with your actual ngrok URL from Colab
-  // This is a placeholder and should be replaced with your actual endpoint
   String _apiUrl = '';
   bool _isInitialized = false;
   final List<Map<String, String>> _conversationHistory = [];
+  
+  // Key for storing the API URL in SharedPreferences
+  static const String _apiUrlPrefKey = 'chatbot_api_url';
+  
+  // Default base URL for FastChat server
+  String _baseUrl = '';
+
+  // Getter for backend URL to be used by other services
+  String? get backendUrl => _baseUrl.isNotEmpty ? _baseUrl : null;
 
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      // You could fetch the API URL from your server or a config file
-      // For now, we'll hardcode it or provide a method to set it
-      _apiUrl =
-          'https://150c-34-143-236-37.ngrok-free.app/chat'; // Replace with your actual ngrok URL
-
+      // Try to load last saved API URL from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      _apiUrl = prefs.getString(_apiUrlPrefKey) ?? '';
+      
+      // If no saved URL, use a default one
+      if (_apiUrl.isEmpty) {
+        _apiUrl = 'https://your-ngrok-url.ngrok.io/chat';
+      }
+      
+      // Extract the base URL from the API URL (for auto-updating)
+      _updateBaseUrl();
+      
       _isInitialized = true;
       developer.log(
         'Chatbot service initialized with API URL: $_apiUrl',
         name: 'ChatbotService',
       );
+      
+      // Try to auto-update the URL if possible
+      await autoUpdateApiUrl();
     } catch (e) {
       developer.log('Error initializing chatbot: $e', name: 'ChatbotService');
       throw Exception('Failed to initialize chatbot service: $e');
     }
   }
+  
+  void _updateBaseUrl() {
+    // Extract base URL from the API URL (remove the "/chat" endpoint)
+    if (_apiUrl.isNotEmpty) {
+      final uri = Uri.parse(_apiUrl);
+      _baseUrl = '${uri.scheme}://${uri.host}';
+      if (uri.port != 80 && uri.port != 443) {
+        _baseUrl += ':${uri.port}';
+      }
+    }
+  }
+  
+  // Method to auto-update the API URL from the Flask server
+  Future<bool> autoUpdateApiUrl() async {
+    if (_baseUrl.isEmpty) return false;
+    
+    try {
+      // Request the current URL from the update_api_url endpoint
+      final response = await http.get(
+        Uri.parse('$_baseUrl/update_api_url'),
+      ).timeout(Duration(seconds: 5));
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final newUrl = data['url'];
+        
+        if (newUrl != null && newUrl.isNotEmpty && newUrl != _apiUrl) {
+          // Update the URL
+          updateApiUrl(newUrl);
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      developer.log('Failed to auto-update API URL: $e', name: 'ChatbotService');
+      return false;
+    }
+  }
 
   // Method to update API URL (useful for changing ngrok URLs)
-  void updateApiUrl(String newUrl) {
+  Future<void> updateApiUrl(String newUrl) async {
     _apiUrl = newUrl;
+    _updateBaseUrl();
+    
+    // Save to SharedPreferences for persistence
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_apiUrlPrefKey, newUrl);
+    
     developer.log(
       'Chatbot API URL updated to: $_apiUrl',
       name: 'ChatbotService',
@@ -81,7 +143,7 @@ class ChatbotService {
         name: 'ChatbotService',
       );
 
-      // Make API call to FastChat server
+      // Make API call to Flask server
       final response = await http
           .post(
             Uri.parse(_apiUrl),

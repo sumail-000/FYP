@@ -38,8 +38,10 @@ class _ChatbotScreenState extends State<ChatbotScreen>
   final FocusNode _focusNode = FocusNode();
   bool _isLoading = false;
   bool _isSendingMessage = false;
+  bool _isCheckingConnection = false;
   List<ChatbotMessage> _messages = [];
   String _currentApiUrl = '';
+  bool _isAutoUpdateEnabled = true;
 
   // App colors
   final Color blueColor = const Color(0xFF2D6DA8);
@@ -70,6 +72,10 @@ class _ChatbotScreenState extends State<ChatbotScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _updatePresence(true);
+      // Try to auto-update the API URL when app is resumed
+      if (_isAutoUpdateEnabled) {
+        _checkAndUpdateApiUrl();
+      }
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _updatePresence(false);
@@ -92,19 +98,24 @@ class _ChatbotScreenState extends State<ChatbotScreen>
       await _chatbotService.initialize();
 
       // Get the current API URL for display
-      _currentApiUrl = 'https://YOUR-NGROK-URL-HERE.ngrok.io/chat';
+      _currentApiUrl = 'https://your-ngrok-url.ngrok.io/chat';
       _apiUrlController.text = _currentApiUrl;
 
       setState(() {
         _messages = [
           ChatbotMessage(
             text:
-                "Hello! I'm your AI assistant. Please set the API URL first by clicking the settings icon in the top-right corner.",
+                "Hello! I'm your AI assistant. I'll try to automatically connect to the Flask API. If I can't connect, please set the API URL manually by clicking the settings icon in the top-right corner.",
             isUserMessage: false,
           ),
         ];
         _isLoading = false;
       });
+      
+      // Try to auto-update the API URL
+      if (_isAutoUpdateEnabled) {
+        _checkAndUpdateApiUrl();
+      }
     } catch (e) {
       developer.log('Error initializing chatbot: $e', name: 'Chatbot');
       setState(() {
@@ -120,6 +131,37 @@ class _ChatbotScreenState extends State<ChatbotScreen>
     }
   }
 
+  Future<void> _checkAndUpdateApiUrl() async {
+    if (_isCheckingConnection) return;
+    
+    setState(() {
+      _isCheckingConnection = true;
+    });
+    
+    try {
+      final updated = await _chatbotService.autoUpdateApiUrl();
+      if (updated) {
+        // If URL was updated, update the UI
+        setState(() {
+          _currentApiUrl = _apiUrlController.text;
+          _messages.add(
+            ChatbotMessage(
+              text: "Connected to a new API endpoint automatically.",
+              isUserMessage: false,
+            ),
+          );
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      developer.log('Error checking API URL: $e', name: 'Chatbot');
+    } finally {
+      setState(() {
+        _isCheckingConnection = false;
+      });
+    }
+  }
+
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
@@ -130,7 +172,7 @@ class _ChatbotScreenState extends State<ChatbotScreen>
     }
   }
 
-  void _updateApiUrl() {
+  Future<void> _updateApiUrl() async {
     final newUrl = _apiUrlController.text.trim();
     if (newUrl.isEmpty) {
       ScaffoldMessenger.of(
@@ -150,7 +192,7 @@ class _ChatbotScreenState extends State<ChatbotScreen>
       _currentApiUrl = newUrl;
     });
 
-    _chatbotService.updateApiUrl(newUrl);
+    await _chatbotService.updateApiUrl(newUrl);
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('API URL updated successfully')));
@@ -171,49 +213,194 @@ class _ChatbotScreenState extends State<ChatbotScreen>
   void _showApiUrlDialog() {
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text('Set API URL'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Enter your Ngrok URL for the FastChat API:',
-                  style: TextStyle(fontSize: 14),
-                ),
-                SizedBox(height: 8),
-                TextField(
-                  controller: _apiUrlController,
-                  decoration: InputDecoration(
-                    hintText: 'https://your-ngrok-url.ngrok.io/chat',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  onSubmitted: (_) => _updateApiUrl(),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Note: This should be the ngrok URL forwarding to your FastChat Flask API on Colab',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('CANCEL'),
-              ),
-              ElevatedButton(
-                onPressed: _updateApiUrl,
-                child: Text('SAVE'),
-                style: ElevatedButton.styleFrom(backgroundColor: blueColor),
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
+          padding: EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.rectangle,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 10.0,
+                offset: Offset(0.0, 10.0),
               ),
             ],
           ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.api_rounded,
+                      color: blueColor,
+                      size: 28,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'API Connection',
+                        style: TextStyle(
+                          color: blueColor,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 20),
+                Text(
+                  'Enter your ngrok URL for the AI Assistant:',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                SizedBox(height: 15),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: TextField(
+                    controller: _apiUrlController,
+                    decoration: InputDecoration(
+                      hintText: 'https://your-ngrok-url.ngrok.io/chat',
+                      prefixIcon: Icon(Icons.link, color: blueColor),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 15,
+                        vertical: 15,
+                      ),
+                    ),
+                    onSubmitted: (_) => _updateApiUrl(),
+                  ),
+                ),
+                SizedBox(height: 20),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  padding: EdgeInsets.symmetric(vertical: 5, horizontal: 5),
+                  child: Row(
+                    children: [
+                      Transform.scale(
+                        scale: 0.9,
+                        child: Checkbox(
+                          value: _isAutoUpdateEnabled,
+                          activeColor: blueColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          onChanged: (value) {
+                            setState(() {
+                              _isAutoUpdateEnabled = value ?? true;
+                            });
+                          },
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Auto-update URL when possible',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 10),
+                Container(
+                  padding: EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: orangeColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: orangeColor.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2.0),
+                        child: Icon(
+                          Icons.info_outline,
+                          color: orangeColor,
+                          size: 20,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'This URL comes from your Colab notebook and changes each time you restart it.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 25),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      ),
+                      child: Text(
+                        'CANCEL',
+                        style: TextStyle(
+                          color: Colors.grey[700],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    ElevatedButton(
+                      onPressed: _updateApiUrl,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blueColor,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(horizontal: 25, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        elevation: 2,
+                      ),
+                      child: Text(
+                        'CONNECT',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -257,12 +444,41 @@ class _ChatbotScreenState extends State<ChatbotScreen>
 
     // Check if API URL is set
     if (_currentApiUrl.isEmpty ||
-        _currentApiUrl == 'https://YOUR-NGROK-URL-HERE.ngrok.io/chat') {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Please set the API URL first')));
-      _showApiUrlDialog();
-      return;
+        _currentApiUrl == 'https://your-ngrok-url.ngrok.io/chat') {
+      
+      // Try to auto-update first
+      if (_isAutoUpdateEnabled) {
+        setState(() {
+          _isCheckingConnection = true;
+          _messages.add(
+            ChatbotMessage(
+              text: "Trying to connect to the AI service...",
+              isUserMessage: false,
+            ),
+          );
+        });
+        
+        bool updated = await _chatbotService.autoUpdateApiUrl();
+        setState(() {
+          _isCheckingConnection = false;
+        });
+        
+        if (!updated) {
+          // If auto-update failed, show dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Please set the API URL first')),
+          );
+          _showApiUrlDialog();
+          return;
+        }
+      } else {
+        // If auto-update is disabled, show dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please set the API URL first')),
+        );
+        _showApiUrlDialog();
+        return;
+      }
     }
 
     // Add user message
@@ -305,6 +521,11 @@ class _ChatbotScreenState extends State<ChatbotScreen>
         );
         _isSendingMessage = false;
       });
+      
+      // Try to auto-update if connection failed
+      if (_isAutoUpdateEnabled) {
+        _checkAndUpdateApiUrl();
+      }
     } finally {
       // Scroll to bottom after response
       Future.delayed(Duration(milliseconds: 100), _scrollToBottom);
@@ -335,15 +556,41 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                   Expanded(
-                    child: Center(
-                      child: Text(
-                        'AI Assistant',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'AI Assistant',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
+                        if (_isCheckingConnection)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Checking connection...',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
                   IconButton(
@@ -421,11 +668,11 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                   ),
                   child: IconButton(
                     onPressed:
-                        _isSendingMessage
+                        _isSendingMessage || _isCheckingConnection
                             ? null
                             : () => _sendMessage(_messageController.text),
                     icon:
-                        _isSendingMessage
+                        _isSendingMessage || _isCheckingConnection
                             ? SizedBox(
                               width: 24,
                               height: 24,
@@ -499,87 +746,42 @@ class _ChatbotScreenState extends State<ChatbotScreen>
                         ),
                       ],
                     ),
-                    child: Text(message.text, style: TextStyle(fontSize: 16)),
-                  ),
-
-                  // Show file if available
-                  if (message.fileUrl != null)
-                    Container(
-                      margin: EdgeInsets.only(
-                        right: 80,
-                        bottom: message.suggestions != null ? 8 : 12,
-                      ),
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            message.fileType == 'pdf'
-                                ? Icons.picture_as_pdf
-                                : Icons.insert_drive_file,
-                            color: Colors.red,
-                            size: 20,
-                          ),
-                          SizedBox(width: 8),
-                          Text(
-                            message.fileUrl!,
-                            style: TextStyle(
-                              color: blueColor,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          SizedBox(width: 8),
-                          Icon(Icons.download, color: blueColor, size: 20),
-                        ],
-                      ),
+                    child: Text(
+                      message.text,
+                      style: TextStyle(fontSize: 16),
                     ),
-
+                  ),
                   // Show suggestions if available
-                  if (message.suggestions != null)
-                    Container(
-                      margin: EdgeInsets.only(right: 80, bottom: 12),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children:
-                            message.suggestions!.map((suggestion) {
-                              return GestureDetector(
-                                onTap: () {
-                                  _messageController.text = suggestion;
-                                  _sendMessage(suggestion);
-                                },
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: blueColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: blueColor.withOpacity(0.3),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    suggestion,
-                                    style: TextStyle(
-                                      color: blueColor,
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 14,
-                                    ),
+                  if (message.suggestions != null &&
+                      message.suggestions!.isNotEmpty)
+                    Wrap(
+                      spacing: 8,
+                      children: message.suggestions!
+                          .map(
+                            (suggestion) => GestureDetector(
+                              onTap: () => _sendMessage(suggestion),
+                              child: Container(
+                                margin: EdgeInsets.only(bottom: 8),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.grey[300]!),
+                                ),
+                                child: Text(
+                                  suggestion,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: blueColor,
                                   ),
                                 ),
-                              );
-                            }).toList(),
-                      ),
+                              ),
+                            ),
+                          )
+                          .toList(),
                     ),
                 ],
               ),

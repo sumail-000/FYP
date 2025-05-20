@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
+import '../chatbot/chatbot_service.dart'; // Import ChatbotService to reuse the URL
 
 class BackendService {
   static const String _backendUrlKey = 'backend_upload_url';
   String? _backendUrl;
   bool _isInitialized = false;
+  bool _isAutomaticUrlDetected = false; // Track if we automatically detected the URL
+
+  // Reference to ChatbotService for URL reuse
+  final ChatbotService _chatbotService = ChatbotService();
 
   // Singleton instance
   static final BackendService _instance = BackendService._internal();
@@ -27,13 +32,60 @@ class BackendService {
       final prefs = await SharedPreferences.getInstance();
       _backendUrl = prefs.getString(_backendUrlKey);
       _isInitialized = true;
+
+      // If no URL is set, try to get it from ChatbotService
+      if (_backendUrl == null || _backendUrl!.isEmpty) {
+        await _tryGetUrlFromChatbot();
+      }
     } catch (e) {
       print('Error initializing BackendService: $e');
     }
   }
 
+  // Try to get the URL from ChatbotService
+  Future<bool> _tryGetUrlFromChatbot() async {
+    try {
+      // First ensure ChatbotService is initialized
+      await _chatbotService.initialize();
+      
+      // Get the URL from ChatbotService
+      final chatbotUrl = _chatbotService.backendUrl;
+      
+      if (chatbotUrl != null && chatbotUrl.isNotEmpty) {
+        // Convert the chatbot URL to the backend URL by replacing /chat with proper endpoint
+        String baseUrl = '';
+        
+        // Extract the base URL (remove /chat or any other endpoint)
+        if (chatbotUrl.contains('/chat')) {
+          baseUrl = chatbotUrl.substring(0, chatbotUrl.lastIndexOf('/chat'));
+        } else {
+          // If no /chat endpoint, use as is
+          baseUrl = chatbotUrl;
+        }
+        
+        // Set the backend URL with the document processing endpoint
+        _backendUrl = '$baseUrl/process_document';
+        
+        // Save the URL to preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_backendUrlKey, _backendUrl!);
+        
+        _isAutomaticUrlDetected = true;
+        print('Backend URL automatically set from chatbot URL: $_backendUrl');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('Error getting URL from ChatbotService: $e');
+      return false;
+    }
+  }
+
   // Check if backend is configured
   bool get isConfigured => _backendUrl != null && _backendUrl!.isNotEmpty;
+  
+  // Check if URL was automatically detected
+  bool get isAutomaticUrlDetected => _isAutomaticUrlDetected;
 
   // Get the backend URL
   String? get backendUrl => _backendUrl;
@@ -57,6 +109,7 @@ class BackendService {
 
       // Update instance variable
       _backendUrl = url;
+      _isAutomaticUrlDetected = false; // Reset since user manually set URL
 
       print('Backend URL set to: $_backendUrl');
     } catch (e) {
@@ -73,56 +126,106 @@ class BackendService {
       return true;
     }
 
+    // Try to get URL from chatbot service first
+    final autoDetected = await _tryGetUrlFromChatbot();
+    if (autoDetected) {
+      // Let user know we automatically configured it
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Backend URL automatically configured from chatbot settings.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      return true;
+    }
+
     // Prompt user for backend URL
     final TextEditingController controller = TextEditingController();
+    
+    // Status message for automatic URL detection
+    String statusMessage = '';
 
+    // Show dialog
     return await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder:
-              (context) => AlertDialog(
-                title: Text('Backend Server Configuration'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Please enter the URL of your document processing backend:',
-                    ),
-                    SizedBox(height: 16),
-                    TextField(
-                      controller: controller,
-                      decoration: InputDecoration(
-                        hintText: 'https://yourserver.ngrok.io',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.url,
-                    ),
-                  ],
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text('Backend Server Configuration'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Please enter the URL of your document processing backend:',
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(false),
-                    child: Text('Skip'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      if (controller.text.isNotEmpty) {
-                        try {
-                          await setBackendUrl(controller.text);
-                          Navigator.of(context).pop(true);
-                        } catch (e) {
-                          ScaffoldMessenger.of(
-                            context,
-                          ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  decoration: InputDecoration(
+                    hintText: 'https://yourserver.ngrok.io',
+                    border: OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(Icons.refresh),
+                      tooltip: 'Try to detect from chatbot settings',
+                      onPressed: () async {
+                        final detected = await _tryGetUrlFromChatbot();
+                        if (detected) {
+                          controller.text = _backendUrl ?? '';
+                          setState(() {
+                            statusMessage = 'URL successfully detected from chatbot settings!';
+                          });
+                        } else {
+                          setState(() {
+                            statusMessage = 'Could not detect URL from chatbot. Please enter manually.';
+                          });
                         }
-                      }
-                    },
-                    child: Text('Save'),
+                      },
+                    ),
                   ),
-                ],
+                  keyboardType: TextInputType.url,
+                ),
+                if (statusMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      statusMessage,
+                      style: TextStyle(
+                        color: statusMessage.contains('successfully') ? Colors.green : Colors.red,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text('Skip'),
               ),
-        ) ??
-        false;
+              ElevatedButton(
+                onPressed: () async {
+                  if (_isAutomaticUrlDetected || controller.text.isNotEmpty) {
+                    try {
+                      if (!_isAutomaticUrlDetected) {
+                        await setBackendUrl(controller.text);
+                      }
+                      Navigator.of(context).pop(true);
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error: $e')),
+                      );
+                    }
+                  }
+                },
+                child: Text('Save'),
+              ),
+            ],
+          );
+        }
+      ),
+    ) ?? false;
   }
 
   // Upload document to backend
@@ -139,7 +242,7 @@ class BackendService {
 
     try {
       // Create the upload URL
-      final uploadUrl = '$_backendUrl/upload';
+      final uploadUrl = '$_backendUrl/process_document';
 
       // Create multipart request
       final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
@@ -170,8 +273,7 @@ class BackendService {
         }
       });
 
-      // Track upload progress
-      int bytesSent = 0;
+      // Send request
       final streamedResponse = await request.send();
 
       // Get response
