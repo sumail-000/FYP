@@ -146,9 +146,20 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
           Navigator.of(context).pushReplacementNamed('/login');
         }
       } catch (e) {
-        setState(() {
-          _errorMessage = e.toString();
-        });
+        // Always display errors in a SnackBar instead of setting error message state
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_formatErrorMessage(e.toString())),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        }
       } finally {
         if (mounted) {
           setState(() {
@@ -172,15 +183,38 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
       // Navigate to home screen
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Google sign-in successful'))
+          SnackBar(
+            content: Text('Google sign-in successful'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          )
         );
         
         Navigator.of(context).pushReplacementNamed('/home');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      // Always display all errors in a SnackBar with appropriate coloring
+      if (mounted) {
+        String errorMessage = _formatErrorMessage(e.toString());
+        bool isCancelled = e.toString().toLowerCase().contains('sign_in_canceled') || 
+                          e.toString().toLowerCase().contains('aborted') ||
+                          e.toString().toLowerCase().contains('canceled');
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: isCancelled ? Colors.blueGrey : Colors.red,
+            duration: Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -188,6 +222,63 @@ class _SignupScreenState extends State<SignupScreen> with SingleTickerProviderSt
         });
       }
     }
+  }
+
+  // Format error messages for better user experience
+  String _formatErrorMessage(String errorMessage) {
+    // Handle sign-in canceled/aborted
+    if (errorMessage.toLowerCase().contains('sign_in_canceled') ||
+        errorMessage.toLowerCase().contains('aborted') ||
+        errorMessage.toLowerCase().contains('canceled')) {
+      return 'Google sign-in was canceled';
+    }
+    
+    // Handle network errors
+    if (errorMessage.contains('network') || 
+        errorMessage.contains('timeout') || 
+        errorMessage.contains('connection') ||
+        errorMessage.contains('unreachable')) {
+      return 'Network error. Please check your internet connection and try again.';
+    }
+    
+    // Handle email already in use
+    if (errorMessage.contains('email-already-in-use')) {
+      return 'This email is already registered. Please try logging in instead.';
+    }
+    
+    // Handle weak password
+    if (errorMessage.contains('weak-password')) {
+      return 'Password is too weak. Please choose a stronger password.';
+    }
+    
+    // Handle invalid email
+    if (errorMessage.contains('invalid-email')) {
+      return 'Please enter a valid email address.';
+    }
+    
+    // Handle operation not allowed
+    if (errorMessage.contains('operation-not-allowed')) {
+      return 'Email/password accounts are not enabled. Please contact support.';
+    }
+    
+    // Clean Firebase prefix
+    if (errorMessage.startsWith('Firebase: ')) {
+      errorMessage = errorMessage.substring('Firebase: '.length);
+    }
+    
+    if (errorMessage.startsWith('[firebase_auth/')) {
+      int closeBracket = errorMessage.indexOf(']');
+      if (closeBracket != -1 && closeBracket + 2 < errorMessage.length) {
+        errorMessage = errorMessage.substring(closeBracket + 2);
+      }
+    }
+    
+    // Make first letter uppercase
+    if (errorMessage.isNotEmpty) {
+      errorMessage = errorMessage[0].toUpperCase() + errorMessage.substring(1);
+    }
+    
+    return errorMessage;
   }
 
   @override

@@ -92,6 +92,7 @@ class RoleSelectionScreen extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
+        color: Color(0xFFF5F5F5),
         child: InkWell(
           onTap: () => onRoleSelected(role),
           borderRadius: BorderRadius.circular(16),

@@ -157,9 +157,30 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           Navigator.of(context).pushReplacementNamed('/home');
         }
       } catch (e) {
-        setState(() {
-          _errorMessage = e.toString();
-        });
+        // Display network errors in a SnackBar instead of setting error message state
+        if (mounted) {
+          if (e.toString().contains('network') || 
+              e.toString().contains('timeout') || 
+              e.toString().contains('connection') ||
+              e.toString().contains('unreachable')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Network error. Please check your internet connection and try again.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 5),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            );
+          } else {
+            // For non-network errors, still show in the form
+            setState(() {
+              _errorMessage = e.toString();
+            });
+          }
+        }
       } finally {
         if (mounted) {
           setState(() {
@@ -187,9 +208,30 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         );
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      // Display network errors in a SnackBar
+      if (mounted) {
+        if (e.toString().contains('network') || 
+            e.toString().contains('timeout') || 
+            e.toString().contains('connection') ||
+            e.toString().contains('unreachable')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Network error. Please check your internet connection and try again.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        } else {
+          // For non-network errors, still show in the form
+          setState(() {
+            _errorMessage = e.toString();
+          });
+        }
+      }
     }
   }
 
@@ -212,9 +254,30 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         Navigator.of(context).pushReplacementNamed('/home');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      // Display network errors in a SnackBar
+      if (mounted) {
+        if (e.toString().contains('network') || 
+            e.toString().contains('timeout') || 
+            e.toString().contains('connection') ||
+            e.toString().contains('unreachable')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Network error. Please check your internet connection and try again.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+        } else {
+          // For non-network errors, still show in the form
+          setState(() {
+            _errorMessage = e.toString();
+          });
+        }
+      }
     } finally {
       if (mounted) {
         setState(() {

@@ -337,6 +337,7 @@ class _UniversitySelectionScreenState extends State<UniversitySelectionScreen> {
             margin: EdgeInsets.only(
               bottom: _isKeyboardVisible ? 4.0 : 8.0
             ),
+            color: Color(0xFFF5F5F5),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
               side: BorderSide(

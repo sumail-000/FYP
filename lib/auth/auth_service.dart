@@ -250,59 +250,109 @@ class AuthService {
   
   // Sign in with Google
   Future<UserCredential?> signInWithGoogle() async {
-    try {
-      // Trigger the authentication flow
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      
-      // If sign in was aborted
-      if (googleUser == null) {
-        throw 'Google sign in was aborted';
-      }
+    int maxRetries = 2; // Maximum number of retries
+    int currentRetry = 0;
+    int baseTimeout = 15000; // Base timeout in milliseconds (15 seconds)
+    
+    while (currentRetry <= maxRetries) {
+      try {
+        // Calculate increasing timeout for each retry
+        int currentTimeout = baseTimeout + (currentRetry * 5000); // Add 5 seconds per retry
+        
+        // Trigger the authentication flow with timeout
+        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn()
+            .timeout(Duration(milliseconds: currentTimeout), onTimeout: () {
+          // On timeout, throw a specific error that we can catch
+          throw 'timeout_error';
+        });
+        
+        // If sign in was aborted by user
+        if (googleUser == null) {
+          throw 'Google sign in was aborted';
+        }
 
-      // Obtain the auth details from the request
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        // Obtain the auth details from the request with timeout
+        final GoogleSignInAuthentication googleAuth = await googleUser.authentication
+            .timeout(Duration(milliseconds: currentTimeout), onTimeout: () {
+          throw 'timeout_error';
+        });
 
-      // Create a new credential
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+        // Create a new credential
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
 
-      // Sign in to Firebase with the Google credential
-      final userCredential = await _auth.signInWithCredential(credential);
-      
-      // Create user document in Firestore
-      await _createUserDocumentIfNotExists(userCredential.user);
-      
-      // Check if this is a new user (first time sign in)
-      bool isNewUser = userCredential.additionalUserInfo?.isNewUser ?? false;
-      
-      if (isNewUser) {
-        // Award points for first signup if this is a new user
-        try {
-          await _activityPointsService.awardFirstLoginPoints();
+        // Sign in to Firebase with the Google credential
+        final userCredential = await _auth.signInWithCredential(credential)
+            .timeout(Duration(milliseconds: currentTimeout), onTimeout: () {
+          throw 'timeout_error';
+        });
+        
+        // Create user document in Firestore
+        await _createUserDocumentIfNotExists(userCredential.user);
+        
+        // Check if this is a new user (first time sign in)
+        bool isNewUser = userCredential.additionalUserInfo?.isNewUser ?? false;
+        
+        if (isNewUser) {
+          // Award points for first signup if this is a new user
+          try {
+            await _activityPointsService.awardFirstLoginPoints();
+            
+            // Check if user has a university email and award points if applicable
+            await _activityPointsService.checkAndAwardUniversityEmailPoints();
+          } catch (e) {
+            print('Error awarding activity points: $e');
+            // Don't throw the error to avoid disrupting the user flow
+          }
+        } else {
+          // Existing user - ensure they have activity points
+          try {
+            await _validateActivityPoints(userCredential.user);
+          } catch (e) {
+            print('Error validating activity points during Google sign in: $e');
+          }
+        }
+        
+        return userCredential;
+      } on FirebaseAuthException catch (e) {
+        throw e.message ?? 'An error occurred during Google sign in.';
+      } catch (e) {
+        // Check if it's a timeout error or network error
+        if (e.toString() == 'timeout_error' || 
+            e.toString().toLowerCase().contains('network') ||
+            e.toString().toLowerCase().contains('connection') ||
+            e.toString().toLowerCase().contains('timeout')) {
           
-          // Check if user has a university email and award points if applicable
-          await _activityPointsService.checkAndAwardUniversityEmailPoints();
-        } catch (e) {
-          print('Error awarding activity points: $e');
-          // Don't throw the error to avoid disrupting the user flow
+          currentRetry++;
+          
+          // If we've reached max retries, throw the error
+          if (currentRetry > maxRetries) {
+            throw 'Connection timed out. Please check your internet connection and try again.';
+          }
+          
+          // Otherwise, we'll retry with a longer timeout
+          print('Google sign-in attempt $currentRetry of $maxRetries failed. Retrying...');
+          
+          // Add a small delay before retrying to allow network recovery
+          await Future.delayed(Duration(milliseconds: 1000));
+          continue;
         }
-      } else {
-        // Existing user - ensure they have activity points
-        try {
-          await _validateActivityPoints(userCredential.user);
-        } catch (e) {
-          print('Error validating activity points during Google sign in: $e');
+        
+        // For cancelled/aborted sign-in, throw immediately without retry
+        if (e.toString().toLowerCase().contains('aborted') || 
+            e.toString().toLowerCase().contains('cancel')) {
+          throw 'Google sign in was canceled.';
         }
+        
+        // For other errors, throw the error message
+        throw 'An error occurred: $e';
       }
-      
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      throw e.message ?? 'An error occurred during Google sign in.';
-    } catch (e) {
-      throw 'An error occurred: $e';
     }
+    
+    // This should never be reached due to the max retries check above
+    throw 'Failed to sign in with Google after multiple attempts.';
   }
 
   // Create user document if it doesn't exist
