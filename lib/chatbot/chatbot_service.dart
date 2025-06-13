@@ -26,15 +26,28 @@ class ChatbotService {
   String _apiUrl = '';
   bool _isInitialized = false;
   final List<Map<String, String>> _conversationHistory = [];
-  
+
   // Key for storing the API URL in SharedPreferences
   static const String _apiUrlPrefKey = 'chatbot_api_url';
-  
+
   // Default base URL for FastChat server
   String _baseUrl = '';
 
   // Getter for backend URL to be used by other services
   String? get backendUrl => _baseUrl.isNotEmpty ? _baseUrl : null;
+
+  // Get the most up-to-date backend URL with auto-update attempt
+  Future<String?> getLatestBackendUrl() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    // Try to auto-update URL
+    await autoUpdateApiUrl();
+
+    // Return the latest URL
+    return _baseUrl.isNotEmpty ? _baseUrl : null;
+  }
 
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -43,21 +56,21 @@ class ChatbotService {
       // Try to load last saved API URL from SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       _apiUrl = prefs.getString(_apiUrlPrefKey) ?? '';
-      
+
       // If no saved URL, use a default one
       if (_apiUrl.isEmpty) {
         _apiUrl = 'https://your-ngrok-url.ngrok.io/chat';
       }
-      
+
       // Extract the base URL from the API URL (for auto-updating)
       _updateBaseUrl();
-      
+
       _isInitialized = true;
       developer.log(
         'Chatbot service initialized with API URL: $_apiUrl',
         name: 'ChatbotService',
       );
-      
+
       // Try to auto-update the URL if possible
       await autoUpdateApiUrl();
     } catch (e) {
@@ -65,7 +78,7 @@ class ChatbotService {
       throw Exception('Failed to initialize chatbot service: $e');
     }
   }
-  
+
   void _updateBaseUrl() {
     // Extract base URL from the API URL (remove the "/chat" endpoint)
     if (_apiUrl.isNotEmpty) {
@@ -76,21 +89,21 @@ class ChatbotService {
       }
     }
   }
-  
+
   // Method to auto-update the API URL from the Flask server
   Future<bool> autoUpdateApiUrl() async {
     if (_baseUrl.isEmpty) return false;
-    
+
     try {
       // Request the current URL from the update_api_url endpoint
-      final response = await http.get(
-        Uri.parse('$_baseUrl/update_api_url'),
-      ).timeout(Duration(seconds: 5));
-      
+      final response = await http
+          .get(Uri.parse('$_baseUrl/update_api_url'))
+          .timeout(Duration(seconds: 5));
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final newUrl = data['url'];
-        
+
         if (newUrl != null && newUrl.isNotEmpty && newUrl != _apiUrl) {
           // Update the URL
           updateApiUrl(newUrl);
@@ -99,7 +112,10 @@ class ChatbotService {
       }
       return false;
     } catch (e) {
-      developer.log('Failed to auto-update API URL: $e', name: 'ChatbotService');
+      developer.log(
+        'Failed to auto-update API URL: $e',
+        name: 'ChatbotService',
+      );
       return false;
     }
   }
@@ -108,11 +124,11 @@ class ChatbotService {
   Future<void> updateApiUrl(String newUrl) async {
     _apiUrl = newUrl;
     _updateBaseUrl();
-    
+
     // Save to SharedPreferences for persistence
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_apiUrlPrefKey, newUrl);
-    
+
     developer.log(
       'Chatbot API URL updated to: $_apiUrl',
       name: 'ChatbotService',

@@ -22,7 +22,8 @@ class AuthService {
     if (user == null) return false;
     
     try {
-      DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+      DocumentSnapshot doc =
+          await _firestore.collection('users').doc(user.uid).get();
       if (!doc.exists) return false;
       
       Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
@@ -40,7 +41,8 @@ class AuthService {
     if (user == null) return null;
     
     try {
-      DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+      DocumentSnapshot doc =
+          await _firestore.collection('users').doc(user.uid).get();
       if (!doc.exists) {
         return UserModel(
           uid: user.uid,
@@ -56,12 +58,16 @@ class AuthService {
   }
   
   // Save profile data
-  Future<void> completeProfile({required UserRole role, required String university}) async {
+  Future<void> completeProfile({
+    required UserRole role,
+    required String university,
+  }) async {
     User? user = _auth.currentUser;
     if (user == null) throw 'User not authenticated';
     
     // Get the current user data to ensure we don't overwrite existing name
-    DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+    DocumentSnapshot doc =
+        await _firestore.collection('users').doc(user.uid).get();
     Map<String, dynamic> existingData = {};
     
     if (doc.exists) {
@@ -73,7 +79,9 @@ class AuthService {
     
     // Validate the username
     bool hasValidUsername = false;
-    if (userName != null && userName.trim().length >= 3 && !RegExp(r'^[0-9]+$').hasMatch(userName.trim())) {
+    if (userName != null &&
+        userName.trim().length >= 3 &&
+        !RegExp(r'^[0-9]+$').hasMatch(userName.trim())) {
       hasValidUsername = true;
     }
     
@@ -82,7 +90,8 @@ class AuthService {
       'name': hasValidUsername ? userName : null, // Only save valid usernames
       'university': university,
       'role': role.toString().split('.').last,
-      'isProfileComplete': hasValidUsername, // Only mark as complete if username is valid
+      'isProfileComplete':
+          hasValidUsername, // Only mark as complete if username is valid
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -108,7 +117,10 @@ class AuthService {
   }
 
   // Sign in with email and password
-  Future<UserCredential?> signInWithEmailPassword(String email, String password) async {
+  Future<UserCredential?> signInWithEmailPassword(
+    String email,
+    String password,
+  ) async {
     try {
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
@@ -162,11 +174,13 @@ class AuthService {
     // Force update points for users who completed their profile
     if (profileCompleted) {
       // First check user document
-      DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
+      DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(user.uid).get();
       if (!userDoc.exists) return;
       
       // Check if user has activity points document
-      DocumentSnapshot pointsDoc = await _firestore.collection('activity_points').doc(user.uid).get();
+      DocumentSnapshot pointsDoc =
+          await _firestore.collection('activity_points').doc(user.uid).get();
       
       // Get current activity points or create
       if (!pointsDoc.exists) {
@@ -180,10 +194,12 @@ class AuthService {
         // Check for university email
         await _activityPointsService.checkAndAwardUniversityEmailPoints();
       } else {
-        Map<String, dynamic> pointsData = pointsDoc.data() as Map<String, dynamic>;
+        Map<String, dynamic> pointsData =
+            pointsDoc.data() as Map<String, dynamic>;
         
         // Check if all one-time activities are complete
-        Map<String, dynamic>? oneTimeActivities = pointsData['oneTimeActivities'] as Map<String, dynamic>?;
+        Map<String, dynamic>? oneTimeActivities =
+            pointsData['oneTimeActivities'] as Map<String, dynamic>?;
         
         if (oneTimeActivities == null || oneTimeActivities.isEmpty) {
           // Missing activities map, award points
@@ -213,7 +229,11 @@ class AuthService {
   }
 
   // Register with email and password
-  Future<UserCredential?> registerWithEmailPassword(String email, String password, {String? username}) async {
+  Future<UserCredential?> registerWithEmailPassword(
+    String email,
+    String password, {
+    String? username,
+  }) async {
     try {
       final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -221,7 +241,10 @@ class AuthService {
       );
       
       // Create user document in Firestore with the username if provided
-      await _createUserDocumentIfNotExists(userCredential.user, username: username);
+      await _createUserDocumentIfNotExists(
+        userCredential.user,
+        username: username,
+      );
       
       // Award points for first signup
       try {
@@ -250,46 +273,28 @@ class AuthService {
   
   // Sign in with Google
   Future<UserCredential?> signInWithGoogle() async {
-    int maxRetries = 2; // Maximum number of retries
-    int currentRetry = 0;
-    int baseTimeout = 15000; // Base timeout in milliseconds (15 seconds)
-    
-    while (currentRetry <= maxRetries) {
-      try {
-        // Calculate increasing timeout for each retry
-        int currentTimeout = baseTimeout + (currentRetry * 5000); // Add 5 seconds per retry
-        
-        // Trigger the authentication flow with timeout
-        final GoogleSignInAccount? googleUser = await _googleSignIn.signIn()
-            .timeout(Duration(milliseconds: currentTimeout), onTimeout: () {
-          // On timeout, throw a specific error that we can catch
-          throw 'timeout_error';
-        });
-        
-        // If sign in was aborted by user
-        if (googleUser == null) {
-          throw 'Google sign in was aborted';
-        }
+    try {
+      // Begin interactive sign in process
+      final GoogleSignInAccount? gUser = await _googleSignIn.signIn();
 
-        // Obtain the auth details from the request with timeout
-        final GoogleSignInAuthentication googleAuth = await googleUser.authentication
-            .timeout(Duration(milliseconds: currentTimeout), onTimeout: () {
-          throw 'timeout_error';
-        });
+      // If the user canceled the sign-in, return null without throwing an error
+      if (gUser == null) {
+        throw 'Google sign in was canceled';
+      }
 
-        // Create a new credential
+      // Obtain auth details from the request
+      final GoogleSignInAuthentication gAuth = await gUser.authentication;
+
+      // Create a new credential for the user
         final credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
+        accessToken: gAuth.accessToken,
+        idToken: gAuth.idToken,
         );
 
         // Sign in to Firebase with the Google credential
-        final userCredential = await _auth.signInWithCredential(credential)
-            .timeout(Duration(milliseconds: currentTimeout), onTimeout: () {
-          throw 'timeout_error';
-        });
+      final userCredential = await _auth.signInWithCredential(credential);
         
-        // Create user document in Firestore
+      // Create user document in Firestore if it doesn't exist
         await _createUserDocumentIfNotExists(userCredential.user);
         
         // Check if this is a new user (first time sign in)
@@ -299,91 +304,89 @@ class AuthService {
           // Award points for first signup if this is a new user
           try {
             await _activityPointsService.awardFirstLoginPoints();
-            
-            // Check if user has a university email and award points if applicable
             await _activityPointsService.checkAndAwardUniversityEmailPoints();
           } catch (e) {
             print('Error awarding activity points: $e');
-            // Don't throw the error to avoid disrupting the user flow
           }
         } else {
           // Existing user - ensure they have activity points
           try {
             await _validateActivityPoints(userCredential.user);
           } catch (e) {
-            print('Error validating activity points during Google sign in: $e');
-          }
+          print('Error validating activity points: $e');
+        }
         }
         
         return userCredential;
       } on FirebaseAuthException catch (e) {
+      print('FirebaseAuthException during Google sign in: ${e.message}');
         throw e.message ?? 'An error occurred during Google sign in.';
       } catch (e) {
-        // Check if it's a timeout error or network error
-        if (e.toString() == 'timeout_error' || 
-            e.toString().toLowerCase().contains('network') ||
-            e.toString().toLowerCase().contains('connection') ||
-            e.toString().toLowerCase().contains('timeout')) {
-          
-          currentRetry++;
-          
-          // If we've reached max retries, throw the error
-          if (currentRetry > maxRetries) {
-            throw 'Connection timed out. Please check your internet connection and try again.';
-          }
-          
-          // Otherwise, we'll retry with a longer timeout
-          print('Google sign-in attempt $currentRetry of $maxRetries failed. Retrying...');
-          
-          // Add a small delay before retrying to allow network recovery
-          await Future.delayed(Duration(milliseconds: 1000));
-          continue;
-        }
-        
-        // For cancelled/aborted sign-in, throw immediately without retry
-        if (e.toString().toLowerCase().contains('aborted') || 
-            e.toString().toLowerCase().contains('cancel')) {
-          throw 'Google sign in was canceled.';
-        }
-        
-        // For other errors, throw the error message
-        throw 'An error occurred: $e';
+      // Log the detailed error
+      print('Error during Google sign in: $e');
+
+      // If error is about canceled sign in, just report that without confusing technical details
+      if (e.toString().toLowerCase().contains('canceled') ||
+          e.toString().toLowerCase().contains('cancel') ||
+          e.toString().toLowerCase().contains('aborted')) {
+        throw 'Google sign in was canceled';
       }
+
+      // For network errors
+      if (e.toString().toLowerCase().contains('network') ||
+          e.toString().toLowerCase().contains('connection') ||
+          e.toString().toLowerCase().contains('timeout')) {
+        throw 'Network error. Please check your internet connection.';
+      }
+
+      // For API exceptions that include the number 10
+      if (e.toString().contains('APIException:10')) {
+        throw 'Google Sign In is not available. Please check if Google Play Services is updated on your device.';
+      }
+
+      // For other errors
+      throw 'Error signing in with Google: ${e.toString()}';
     }
-    
-    // This should never be reached due to the max retries check above
-    throw 'Failed to sign in with Google after multiple attempts.';
   }
 
   // Create user document if it doesn't exist
-  Future<void> _createUserDocumentIfNotExists(User? user, {String? username}) async {
+  Future<void> _createUserDocumentIfNotExists(
+    User? user, {
+    String? username,
+  }) async {
     if (user == null) return;
     
     // Validate username if provided
     String? validatedUsername;
     if (username != null) {
       // Username should be at least 3 characters and not only numbers
-      if (username.trim().length >= 3 && !RegExp(r'^[0-9]+$').hasMatch(username.trim())) {
+      if (username.trim().length >= 3 &&
+          !RegExp(r'^[0-9]+$').hasMatch(username.trim())) {
         validatedUsername = username.trim();
       }
     }
     
     // If Google display name is available, use it as a fallback
     String? displayName = user.displayName;
-    if (displayName != null && displayName.trim().length >= 3 && !RegExp(r'^[0-9]+$').hasMatch(displayName.trim())) {
+    if (displayName != null &&
+        displayName.trim().length >= 3 &&
+        !RegExp(r'^[0-9]+$').hasMatch(displayName.trim())) {
       displayName = displayName.trim();
     } else if (validatedUsername == null) {
       displayName = null; // Will be handled by profile completion
     }
     
     // Check if user document already exists
-    DocumentSnapshot doc = await _firestore.collection('users').doc(user.uid).get();
+    DocumentSnapshot doc =
+        await _firestore.collection('users').doc(user.uid).get();
     
     if (!doc.exists) {
       // Create new user document with basic info
       await _firestore.collection('users').doc(user.uid).set({
         'email': user.email,
-        'name': validatedUsername ?? displayName, // Use provided username for email signup
+        'name':
+            validatedUsername ??
+            displayName, // Use provided username for email signup
         'isProfileComplete': false,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),

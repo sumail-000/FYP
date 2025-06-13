@@ -804,6 +804,14 @@ class _DashboardScreenState extends State<DashboardScreen>
                         ],
                       ),
 
+                      // Refresh button in center
+                      IconButton(
+                        icon: Icon(Icons.refresh, color: Colors.grey[700]),
+                        onPressed: () {
+                          _refreshDocuments();
+                        },
+                      ),
+
                       // Right sort button with active indicator
                       Stack(
                         children: [
@@ -1253,6 +1261,31 @@ class _DashboardScreenState extends State<DashboardScreen>
   // Method to fetch recent documents
   Future<List<Map<String, dynamic>>> _getRecentDocuments() async {
     try {
+      // If we already have documents loaded and just need to apply sorting/filtering
+      if (_allDocuments.isNotEmpty) {
+        developer.log(
+          'Using cached documents instead of fetching again, with ${_isSortActive ? _getSortDescription() : "default"} sorting',
+          name: 'Dashboard',
+        );
+
+        // Apply current sort if active
+        if (_isSortActive) {
+          List<Map<String, dynamic>> sortedResult = List.from(_allDocuments);
+          _applyCurrentSort(sortedResult);
+
+          // Return the appropriate list
+          return (_isSearchActive || _isFilterApplied)
+              ? _filteredDocuments
+              : sortedResult;
+        }
+
+        // Return the appropriate list
+        return (_isSearchActive || _isFilterApplied)
+            ? _filteredDocuments
+            : _allDocuments;
+      }
+
+      // First time loading - fetch from Firestore
       // First, get the current user's university
       String? userUniversity = await _getUserUniversity();
 
@@ -1262,7 +1295,7 @@ class _DashboardScreenState extends State<DashboardScreen>
       }
 
       developer.log(
-        'Filtering documents for university: $userUniversity',
+        'Fetching new documents for university: $userUniversity',
         name: 'Dashboard',
       );
 
@@ -1291,47 +1324,47 @@ class _DashboardScreenState extends State<DashboardScreen>
       List<Map<String, dynamic>> result = [];
 
       for (var doc in snapshot.docs) {
-        final data = doc.data();
+        final data = doc.data() as Map<String, dynamic>;
 
-        // Extract file extension from fileName or format
+        // Extract file extension from fileName or secureUrl
         String extension = '';
-        if (data['format'] != null) {
-          extension = data['format'].toString().toLowerCase();
-        } else if (data['fileName'] != null) {
-          final fileName = data['fileName'] as String;
-          final parts = fileName.split('.');
-          if (parts.length > 1) {
-            extension = parts.last.toLowerCase();
+        final fileName = data['fileName'] as String? ?? '';
+        if (fileName.contains('.')) {
+          extension = fileName.split('.').last.toLowerCase();
+        } else if (data['secureUrl'] != null) {
+          final url = data['secureUrl'] as String;
+          if (url.contains('.')) {
+            extension = url.split('.').last.toLowerCase();
           }
         }
 
-        // Only include supported document types
-        if (!['pdf', 'doc', 'docx', 'ppt', 'pptx'].contains(extension)) {
-          continue; // Skip unsupported formats
-        }
-
-        // Format timestamp for time ago display
+        // Format relative time
         String timeAgo = 'Recently';
         if (data['uploadedAt'] != null) {
-          final timestamp = data['uploadedAt'] as Timestamp;
+          final uploadTime = (data['uploadedAt'] as Timestamp).toDate();
           final now = DateTime.now();
-          final difference = now.difference(timestamp.toDate());
+          final difference = now.difference(uploadTime);
 
-          if (difference.inDays > 0) {
-            timeAgo =
-                '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
-          } else if (difference.inHours > 0) {
-            timeAgo =
-                '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
-          } else if (difference.inMinutes > 0) {
-            timeAgo =
-                '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
-          } else {
+          // Ensure timestamp is properly stored for sorting
+          Timestamp timestamp = data['uploadedAt'] as Timestamp;
+
+          if (difference.inMinutes < 1) {
             timeAgo = 'Just now';
+          } else if (difference.inHours < 1) {
+            final minutes = difference.inMinutes;
+            timeAgo = '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
+          } else if (difference.inDays < 1) {
+            final hours = difference.inHours;
+            timeAgo = '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
+          } else if (difference.inDays < 30) {
+            final days = difference.inDays;
+            timeAgo = '$days ${days == 1 ? 'day' : 'days'} ago';
+          } else {
+            // Format as date for older documents
+            timeAgo = DateFormat('MMM d, yyyy').format(uploadTime);
           }
         }
 
-        // Add document to result list with proper field mappings
         result.add({
           'id': doc.id,
           'fileName':
@@ -1347,11 +1380,22 @@ class _DashboardScreenState extends State<DashboardScreen>
           'bytes': data['bytes'] ?? 0,
           'uploaderName': data['uploaderName'] ?? 'Anonymous',
           'uploaderId': data['uploaderId'] ?? '',
+          'timestamp':
+              data['uploadedAt']
+                  as Timestamp, // Store original timestamp for better sorting
         });
       }
 
       // Store all documents for later filtering
       _allDocuments = result;
+
+      // Apply current sort if it's active
+      if (_isSortActive) {
+        // Create a copy to avoid modifying the state during sorting
+        List<Map<String, dynamic>> sortedResult = List.from(result);
+        _applyCurrentSort(sortedResult);
+        result = sortedResult;
+      }
 
       // If search or filter is active, return filtered documents, otherwise return all
       return (_isSearchActive || _isFilterApplied)
@@ -4863,33 +4907,81 @@ class _DashboardScreenState extends State<DashboardScreen>
       List<Map<String, dynamic>> docsToSort =
           (_isFilterApplied || _isSearchActive)
               ? _filteredDocuments
-              : _allDocuments;
+              : List.from(
+                _allDocuments,
+              ); // Use a copy to avoid modifying original
+
+      // Log before sorting
+      developer.log(
+        'Before sorting: First document: ${docsToSort.isNotEmpty ? docsToSort.first['fileName'] : "None"}',
+        name: 'Dashboard',
+      );
+
+      // Debug info about documents
+      if (docsToSort.isNotEmpty) {
+        developer.log(
+          'Document keys available: ${docsToSort.first.keys.join(", ")}',
+          name: 'Dashboard',
+        );
+        developer.log(
+          'timestamp type: ${docsToSort.first['timestamp']?.runtimeType}',
+          name: 'Dashboard',
+        );
+      }
 
       switch (option) {
         case SortOption.newest:
-          // Already sorted by newest in Firestore query
-          // Just make sure any previously sorted lists are restored to original order
-          if (_isFilterApplied || _isSearchActive) {
-            _applyFiltersAndSearch();
-          }
-          break;
-
-        case SortOption.oldest:
+          // For newest first, we need to refresh sorting
           docsToSort.sort((a, b) {
-            // Convert timeAgo strings to comparable values
-            // This is a simplified approach - ideally we would sort by actual timestamps
+            // First try to compare using timestamp if present in the map
+            final aUploadTime = a['timestamp'] as Timestamp?;
+            final bUploadTime = b['timestamp'] as Timestamp?;
+
+            if (aUploadTime != null && bUploadTime != null) {
+              // Sort by timestamp (newest first)
+              return bUploadTime.compareTo(aUploadTime);
+            }
+
+            // Fallback to timeAgo string comparison if timestamps not available
             final timeA = a['timeAgo'] ?? '';
             final timeB = b['timeAgo'] ?? '';
 
             // Handle "Just now" case
-            if (timeA == 'Just now') return 1;
-            if (timeB == 'Just now') return -1;
+            if (timeA == 'Just now') return -1; // a is newer
+            if (timeB == 'Just now') return 1; // b is newer
 
-            // Sort by numeric component in descending order
+            // Compare numerically for time-based strings
             final numA = _extractNumericValue(timeA);
             final numB = _extractNumericValue(timeB);
 
-            return numB.compareTo(numA); // Reverse order for oldest first
+            return numA.compareTo(numB); // Smaller values are newer
+          });
+          break;
+
+        case SortOption.oldest:
+          docsToSort.sort((a, b) {
+            // First try to compare using timestamp if present in the map
+            final aUploadTime = a['timestamp'] as Timestamp?;
+            final bUploadTime = b['timestamp'] as Timestamp?;
+
+            if (aUploadTime != null && bUploadTime != null) {
+              // Sort by timestamp (oldest first)
+              return aUploadTime.compareTo(bUploadTime);
+            }
+
+            // Fallback to timeAgo string comparison if timestamps not available
+            final timeA = a['timeAgo'] ?? '';
+            final timeB = b['timeAgo'] ?? '';
+
+            // Handle "Just now" case
+            if (timeA == 'Just now') return 1; // a is newer, so comes later
+            if (timeB == 'Just now') return -1; // b is newer, so comes later
+
+            // Compare numerically for time-based strings
+            final numA = _extractNumericValue(timeA);
+            final numB = _extractNumericValue(timeB);
+
+            return numB.compareTo(numA); // Larger values are older
           });
           break;
 
@@ -4928,9 +5020,25 @@ class _DashboardScreenState extends State<DashboardScreen>
 
       // Update the appropriate list with sorted results
       if (_isFilterApplied || _isSearchActive) {
-        _filteredDocuments = List.from(docsToSort);
+        _filteredDocuments = docsToSort;
       } else {
-        _allDocuments = List.from(docsToSort);
+        // This is the key change - we're replacing the in-memory list
+        // with our sorted version, but not triggering a database reload
+        _allDocuments = docsToSort;
+      }
+
+      // Log sorting results
+      developer.log(
+        'Applied sort: ${_getSortDescription()}, documents count: ${docsToSort.length}',
+        name: 'Dashboard',
+      );
+
+      // Debug log after sorting
+      if (docsToSort.isNotEmpty) {
+        developer.log(
+          'After sorting: First 3 documents: ${docsToSort.take(3).map((doc) => doc['fileName']).join(", ")}',
+          name: 'Dashboard',
+        );
       }
     });
   }
@@ -4999,5 +5107,156 @@ class _DashboardScreenState extends State<DashboardScreen>
               : DisplayStyle.grid;
       _isDisplayStyleChanged = _currentDisplayStyle != DisplayStyle.grid;
     });
+  }
+
+  // Apply sort to a list of documents without updating state
+  void _applyCurrentSort(List<Map<String, dynamic>> documents) {
+    switch (_currentSortOption) {
+      case SortOption.newest:
+        // For newest first, sort by timestamp or timeAgo
+        documents.sort((a, b) {
+          // First try to compare using 'uploadedAt' timestamp if present
+          final aUploadTime = a['timestamp'] as Timestamp?;
+          final bUploadTime = b['timestamp'] as Timestamp?;
+
+          if (aUploadTime != null && bUploadTime != null) {
+            // Sort by timestamp (newest first)
+            return bUploadTime.compareTo(aUploadTime);
+          }
+
+          // Fallback to timeAgo string comparison
+          final timeA = a['timeAgo'] ?? '';
+          final timeB = b['timeAgo'] ?? '';
+
+          // Handle "Just now" case
+          if (timeA == 'Just now') return -1; // a is newer
+          if (timeB == 'Just now') return 1; // b is newer
+
+          // Compare numerically for time-based strings
+          final numA = _extractNumericValue(timeA);
+          final numB = _extractNumericValue(timeB);
+
+          return numA.compareTo(numB); // Smaller values are newer
+        });
+        break;
+
+      case SortOption.oldest:
+        documents.sort((a, b) {
+          // First try to compare using timestamp if present
+          final aUploadTime = a['timestamp'] as Timestamp?;
+          final bUploadTime = b['timestamp'] as Timestamp?;
+
+          if (aUploadTime != null && bUploadTime != null) {
+            // Sort by timestamp (oldest first)
+            return aUploadTime.compareTo(bUploadTime);
+          }
+
+          // Fallback to timeAgo string comparison
+          final timeA = a['timeAgo'] ?? '';
+          final timeB = b['timeAgo'] ?? '';
+
+          // Handle "Just now" case
+          if (timeA == 'Just now') return 1; // a is newer, so comes later
+          if (timeB == 'Just now') return -1; // b is newer, so comes later
+
+          // Compare numerically for time-based strings
+          final numA = _extractNumericValue(timeA);
+          final numB = _extractNumericValue(timeB);
+
+          return numB.compareTo(numA); // Larger values are older
+        });
+        break;
+
+      case SortOption.nameAZ:
+        documents.sort((a, b) {
+          final nameA = (a['fileName'] ?? '').toString().toLowerCase();
+          final nameB = (b['fileName'] ?? '').toString().toLowerCase();
+          return nameA.compareTo(nameB);
+        });
+        break;
+
+      case SortOption.nameZA:
+        documents.sort((a, b) {
+          final nameA = (a['fileName'] ?? '').toString().toLowerCase();
+          final nameB = (b['fileName'] ?? '').toString().toLowerCase();
+          return nameB.compareTo(nameA);
+        });
+        break;
+
+      case SortOption.fileSize:
+        documents.sort((a, b) {
+          final sizeA = a['bytes'] as int? ?? 0;
+          final sizeB = b['bytes'] as int? ?? 0;
+          return sizeB.compareTo(sizeA); // Largest first
+        });
+        break;
+
+      case SortOption.fileType:
+        documents.sort((a, b) {
+          final typeA = (a['extension'] ?? '').toString().toLowerCase();
+          final typeB = (b['extension'] ?? '').toString().toLowerCase();
+          return typeA.compareTo(typeB);
+        });
+        break;
+    }
+  }
+
+  // Method to manually refresh documents with current sorting applied
+  void _refreshDocuments() {
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Center(child: CircularProgressIndicator(color: orangeColor));
+      },
+    );
+
+    // Apply current sort to existing documents without reloading from database
+    if (_allDocuments.isNotEmpty && _isSortActive) {
+      developer.log(
+        'Reapplying sort ${_getSortDescription()} to existing documents without database reload',
+        name: 'Dashboard',
+      );
+
+      // Apply the current sort option to the documents in memory
+      _applySortOption(_currentSortOption);
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      // Show confirmation
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Documents sorted by ${_getSortDescription()}'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } else {
+      // For first load or if we need fresh data
+      setState(() {
+        _allDocuments = [];
+        _filteredDocuments = [];
+      });
+
+      // Slight delay to ensure UI updates
+      Future.delayed(Duration(milliseconds: 300), () {
+        // Close loading dialog when done
+        Navigator.of(context).pop();
+
+        // Force state update to trigger document reload
+        setState(() {});
+
+        // Show confirmation
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Documents refreshed with ${_getSortDescription()} sorting',
+            ),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      });
+    }
   }
 }
